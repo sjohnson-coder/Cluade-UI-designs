@@ -13,7 +13,7 @@ export default function Analytics(){
   const getReport=async()=>setReport(await api.docsInfo());
   const topRows=data.topStrategies||[];
   const history=useMemo(()=>{const rows=data.history||[];return rows.filter((r:any)=>{const d=String(r.closeTime||r.date||'').slice(0,10);if(dateFrom&&d<dateFrom)return false;if(dateTo&&d>dateTo)return false;return true})},[data,dateFrom,dateTo]);
-  const tabs=['Overview','Performance','Trades','Strategies','Decisions','Backtest','Risk','Reports','Custom'];
+  const tabs=['Overview','Performance','Trades','Strategies','Decisions','Backtest','Strategy Lab','Risk','Reports','Custom'];
   return <div className="analytics-page exact-analytics">
     <PageHeader title="Analytics" subtitle="Deep performance insights and system intelligence." right={<><input className="input date-control" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/><input className="input date-control" type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/><select className="input account-filter" value={account} onChange={e=>setAccount(e.target.value)}><option>All Accounts</option><option>GodMode Bot Only</option></select><button className="outline-button" onClick={load}><RefreshCcw size={14}/> Refresh</button><button className="outline-button" onClick={()=>downloadExport('analytics','json')}><Download size={14}/> Export</button></>}/>
     <div className="tabs-line">{tabs.map(x=><button key={x} className={tab===x?'active':''} onClick={()=>setTab(x)}>{x}</button>)}</div>
@@ -25,6 +25,7 @@ export default function Analytics(){
     {tab==='Risk'&&<div className="analytics-layout"><div className="analytics-grid"><Card><SectionTitle title="Win Rate Breakdown"/><Donut value={Number(k.winRate||0)}/></Card><Card><SectionTitle title="Drawdown Curve"/><DrawdownChart data={data.drawdown||[]}/></Card><Card><SectionTitle title="Confidence vs Result"/><ScatterPerformance data={data.confidenceResult||[]}/></Card></div></div>}
     {tab==='Reports'&&<Card><SectionTitle title="Full Report" right={<button className="outline-button" onClick={getReport}><FileText size={14}/> View Full Report</button>}/>{report?<pre className="code-box">{JSON.stringify(report,null,2)}</pre>:<p className="muted">Press View Full Report to generate the backend/API report information.</p>}</Card>}
     {tab==='Decisions'&&<DecisionLogTab/>}
+    {tab==='Strategy Lab'&&<StrategyLabTab/>}
     {tab==='Backtest'&&<BacktestTab/>}
     {tab==='Custom'&&<Card><SectionTitle title="Custom Analytics Builder"/><p className="muted">Custom filters use the selected date range and bot-only MT5 trade history. More report templates can be added here.</p></Card>}
   </div>
@@ -66,6 +67,36 @@ function BacktestTab(){
       <p className="muted tiny">Trained on {opt.trainedOn} trades, validated on {opt.validatedOn}. Out-of-sample score↔outcome correlation: {opt.outOfSample?.before?.scoreOutcomeCorr} → {opt.outOfSample?.after?.scoreOutcomeCorr}. {opt.applied?'Applied & persisted to the live engine.':'Not applied (toggle "Apply if improved").'}</p>
       <DataTable columns={['factor','correlation','weight']} rows={opt.factorContributions||[]} renderCell={(r,c)=>c==='correlation'?<span className={Number(r.correlation)>=0?'positive':'negative'}>{r.correlation}</span>:r[c]}/></Card>}
     {res&&!res.ok&&<Card className="span-2"><p className="muted">{res.message||'Backtest unavailable.'}</p></Card>}
+  </div></div>;
+}
+function StrategyLabTab(){
+  const [res,setRes]=useState<any>(null),[loading,setLoading]=useState(false),[msg,setMsg]=useState(''),[installed,setInstalled]=useState<any>(null);
+  useEffect(()=>{(async()=>{const s:any=await api.labStatus();if(s?.result)setRes(s.result);if(s?.installed)setInstalled(s.installed)})()},[]);
+  const run=async()=>{setLoading(true);setMsg('');const r:any=await api.labRun({});setRes(r);setLoading(false);if(!r?.ok)setMsg(r?.message||'Lab run failed.')};
+  const install=async(id:string,name:string)=>{const r:any=await api.labInstall(id);if(r?.ok){setInstalled(r.installed);const e=r.evidence;setMsg(`✓ Installed ${name}. ${e?`Evidence: ${e.expectancyR}R/trade · PF ${e.profitFactor} · ${e.oosConsistencyPct}% folds positive · ${e.trades} trades.`:''} ${r.thesis||''}`)}else setMsg(r?.message||'Install failed.')};
+  const rec=res?.recommendation; const base=res?.baseline||{};
+  const rows=[{name:res?.baseline?.name||'Your current config',...base,_base:true},...(res?.candidates||[])];
+  return <div className="analytics-layout"><div className="analytics-grid">
+    <Card className="span-2"><SectionTitle title="AI Strategy Lab" right={<Tag color="purple">Tests candidate styles on YOUR data</Tag>}/>
+      <p className="tiny muted">The agent back- and forward-tests a library of candidate trading STYLES against your own MT5 history and head-to-head with your live config. It only recommends an upgrade that genuinely beats your current setup out-of-sample — and nothing is applied until you click Install. Connect MT5 for a real verdict (otherwise it runs on synthetic data).</p>
+      <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',marginTop:10}}>
+        <button className="gold-button" onClick={run} disabled={loading} style={{height:38}}>{loading?'Testing all candidates…':'🧠 Run Strategy Lab'}</button>
+        {installed&&<span className="tiny muted">Installed: <strong>{installed.name}</strong></span>}
+      </div>
+      {res?.span&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles</p>}
+      {msg&&<p className="gold tiny" style={{marginTop:6}}>{msg}</p>}
+    </Card>
+    {rec&&<Card className="span-2"><SectionTitle title="Recommended upgrade" right={<Tag color="green">Beats your current config</Tag>}/>
+      <p style={{fontWeight:600,marginTop:4}}>{rec.name}</p>
+      <p className="muted" style={{marginTop:4}}>{rec.why}</p>
+      {rec.thesis&&<p className="tiny muted" style={{marginTop:4}}>{rec.thesis}</p>}
+      <button className="gold-button" style={{marginTop:8,height:36}} onClick={()=>install(rec.id,rec.name)}>Install {rec.name}</button>
+    </Card>}
+    {res?.ok&&<Card className="span-2"><SectionTitle title="Candidates vs your current config — net of costs"/>
+      <DataTable columns={['name','trades','expectancyR','vsBaseline','profitFactor','winRate','oos','install']} rows={rows.map((r:any)=>({_r:r,name:r.name,trades:r.trades,expectancyR:`${r.expectancyR}R`,vsBaseline:r._base?'—':`${Number(r.expectancyVsBaseline)>=0?'+':''}${r.expectancyVsBaseline}R`,profitFactor:r.profitFactor,winRate:`${r.winRate}%`,oos:`${r.oosConsistencyPct||0}%`,install:''}))}
+        renderCell={(row:any,c:string)=>c==='vsBaseline'&&!row._r._base?<span className={Number(row._r.expectancyVsBaseline)>=0?'positive':'negative'}>{row.vsBaseline}</span>:c==='install'?(row._r._base?<Tag color="blue">current</Tag>:<button className="ghost-button" style={{height:28}} onClick={()=>install(row._r.id,row._r.name)}>Install</button>):c==='name'?<span><strong>{row.name}</strong>{row._r.thesis?<><br/><span className="tiny muted">{row._r.thesis}</span></>:null}</span>:row[c]}/>
+    </Card>}
+    {res&&!res.ok&&<Card className="span-2"><p className="muted">{res.message||'Run the lab to test candidate strategies against your history.'}</p></Card>}
   </div></div>;
 }
 function DecisionLogTab(){

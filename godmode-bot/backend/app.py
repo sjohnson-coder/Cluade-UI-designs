@@ -23,6 +23,7 @@ load_dotenv()
 
 from services.backtesting import MonteCarloTester, TradeReplayEngine, WalkForwardBacktester
 from services.backtest_engine import CostAwareBacktester
+from services.strategy_lab import StrategyLab
 from services.decision_engine import GoldDecisionEngine
 from services.live_execution import BrokerSpecificLotSizer, ExposureValidator, LiveExecutionManager
 from services.live_market_feeds import EconomicCalendarAPI, MacroFeed, TickDataBacktester
@@ -100,6 +101,8 @@ memory = PerformanceMemory()
 walk_forward = WalkForwardBacktester()
 monte_carlo = MonteCarloTester()
 backtester = CostAwareBacktester()
+strategy_lab = StrategyLab()
+LAB_STATE: dict[str, Any] = {"lastRun": 0.0, "lastResult": None, "lastRecSig": None, "installedProfile": None}
 replay_engine = TradeReplayEngine()
 calendar = EconomicCalendar()
 macro = MacroAwareness()
@@ -2797,6 +2800,81 @@ def backtest_weights_reset():
     except Exception:
         pass
     return {"ok": True, "message": "Reverted to default hand-set factor weights."}
+
+
+# ── AI Strategy Lab ──────────────────────────────────────────────────────────────────────
+def _run_strategy_lab(bars: int = 60000) -> dict[str, Any]:
+    """Back-/forward-test every candidate trading style + the live baseline over your history."""
+    connected = bool(mt5_bridge.status().get("connected"))
+    candles = _backtest_candles(bars)
+    params = _backtest_params({"spread": 0.25, "commission": 0.07, "minSample": 30, "folds": 6,
+                               "dataSource": "mt5_history" if connected else "synthetic_demo"})
+    baseline = decision_engine.strictness_dict()
+    res = strategy_lab.evaluate(candles, decision_engine, list(STRATEGIES_STATE.values()), backtester, baseline, params)
+    res["dataSource"] = params["dataSource"]
+    LAB_STATE["lastRun"] = time.time()
+    LAB_STATE["lastResult"] = res
+    return res
+
+
+@app.get("/api/lab/candidates")
+def lab_candidates():
+    return {"ok": True, "candidates": strategy_lab.candidates(), "installed": LAB_STATE.get("installedProfile")}
+
+
+@app.post("/api/lab/run")
+def lab_run(payload: dict[str, Any] = Body(default={})):
+    """Run the lab now. If a candidate genuinely beats your live config out-of-sample, raise a
+    notification + top-bar + sound + Telegram alert prompting you to review & install it."""
+    res = _run_strategy_lab(int(payload.get("bars", 60000)))
+    rec = res.get("recommendation")
+    if rec and res.get("signature") != LAB_STATE.get("lastRecSig"):
+        LAB_STATE["lastRecSig"] = res.get("signature")
+        _push_notification("AI found a better strategy", f"{rec['name']}: {rec['why'][:150]} Review & install in Analytics → Strategy Lab.", "success", {"sound": True, "strategyLab": True})
+        tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
+        if tg.get("enabled"):
+            _telegram_send_text(f"🧠 *GodMode — better strategy found*\n*{rec['name']}*\n{rec['why']}\n\nReview the back/forward test and install it in the dashboard → Analytics → Strategy Lab.")
+    return res
+
+
+@app.get("/api/lab/status")
+def lab_status():
+    return {"ok": True, "lastRun": LAB_STATE.get("lastRun"), "result": LAB_STATE.get("lastResult"),
+            "installed": LAB_STATE.get("installedProfile")}
+
+
+@app.post("/api/lab/add-candidates")
+def lab_add_candidates(payload: dict[str, Any] = Body(default={})):
+    """Append externally-sourced candidate PROFILES (trusted feed / AI generator) — rule-specs of
+    the same shape as the library, never executable code. They then get backtested like any other."""
+    items = payload.get("candidates") or payload.get("items") or []
+    n = strategy_lab.add_candidates(items if isinstance(items, list) else [])
+    return {"ok": True, "added": n, "total": len(strategy_lab.candidates())}
+
+
+@app.post("/api/lab/install")
+def lab_install(payload: dict[str, Any] = Body(default={})):
+    """Apply a candidate profile to the LIVE engine + persist it, and return the back/forward
+    evidence + thesis that justified it. Only ever called after the user clicks Install."""
+    cand = strategy_lab.get(str(payload.get("id", "")))
+    if not cand:
+        return {"ok": False, "message": f"Unknown candidate '{payload.get('id')}'."}
+    prof = cand["profile"]
+    ai_cfg = SETTINGS_STATE.setdefault("ai", {})
+    for k in ("strictnessMode", "scoutConfidence", "standardConfidence", "sniperConfidence",
+              "minRiskReward", "maxSpread", "minEfficiencyRatio", "minConfluence", "allowScoutEntries"):
+        if k in prof:
+            ai_cfg[k] = prof[k]
+    if prof.get("allowedSessions"):
+        SETTINGS_STATE.setdefault("trading", {})["allowedSessions"] = prof["allowedSessions"]
+    decision_engine.configure_strictness(ai_cfg)
+    _save_settings()
+    LAB_STATE["installedProfile"] = {"id": cand["id"], "name": cand["name"],
+                                     "appliedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    row = next((r for r in (LAB_STATE.get("lastResult") or {}).get("candidates", []) if r["id"] == cand["id"]), None)
+    _management_alert("Strategy installed", f"{cand['name']} is now your live config. {cand.get('thesis','')}", "success")
+    return {"ok": True, "installed": LAB_STATE["installedProfile"], "evidence": row,
+            "thesis": cand.get("thesis"), "appliedConfig": decision_engine.strictness_dict()}
 
 
 @app.post("/api/backtest/apply-verdicts")
