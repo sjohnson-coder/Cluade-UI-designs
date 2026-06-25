@@ -155,7 +155,7 @@ _load_factor_weights()
 def _backtest_candles(count: int) -> list[dict[str, Any]]:
     """M15 candles for backtesting: real MT5 history when connected, else a synthetic
     series so the harness still runs (results on synthetic data are illustrative only)."""
-    count = max(300, min(int(count or 4000), 20000))
+    count = max(300, min(int(count or 4000), 120000))   # up to ~3.4 years of M15 for real validation
     if mt5_bridge.status().get("connected"):
         sym = str((SETTINGS_STATE.get("trading") or {}).get("symbol", mt5_bridge.symbol))
         rows = mt5_bridge.copy_rates(symbol=sym, timeframe="M15", count=count)
@@ -2535,6 +2535,48 @@ def backtest_run(payload: dict[str, Any] = Body(default={})):
     res["dataSource"] = "mt5_history" if mt5_bridge.status().get("connected") else "synthetic_demo"
     if res.get("dataSource") == "synthetic_demo":
         res["note"] = "Synthetic candles (MT5 not connected) — numbers are illustrative. Connect MT5 for a real edge measurement."
+    return res
+
+
+@app.post("/api/backtest/validate")
+def backtest_validate(payload: dict[str, Any] = Body(default={})):
+    """One-click EDGE VALIDATION: replays the REAL decision engine over up to ~2 years of your
+    actual MT5 history with realistic Gold costs, then returns a plain-English GO / CAUTION /
+    NO-GO with a deploy checklist. This is the truth-teller to run BEFORE risking capital."""
+    connected = bool(mt5_bridge.status().get("connected"))
+    candles = _backtest_candles(int(payload.get("bars", 70000)))   # ~2 years of M15
+    params = _backtest_params({"spread": 0.25, "commission": 0.07, "minSample": 40, "folds": 6, **payload})
+    res = backtester.run(candles, decision_engine, list(STRATEGIES_STATE.values()), params)
+    if not res.get("ok"):
+        return res
+    a = res.get("assessment", {}) or {}
+    o = res.get("overall", {}) or {}
+    edge = a.get("edge", "none")
+    n = int(res.get("totalTrades", 0) or 0)
+    if not connected:
+        decision, head = "NO-GO (test data)", "Ran on SYNTHETIC data — MT5 not connected. Connect MT5 and re-run for a real verdict."
+    elif n < 40:
+        decision, head = "INCONCLUSIVE", f"Only {n} trades over {res.get('span','')} — load more history (scroll your M15 chart far back so the terminal caches it) and re-run."
+    elif edge == "strong":
+        decision, head = "GO (demo-forward first)", "Positive expectancy after costs with consistent walk-forward folds."
+    elif edge == "marginal":
+        decision, head = "CAUTION", "Barely above costs / inconsistent folds — refine (disable DISABLE-verdict strategies, tighten filters) before sizing up."
+    else:
+        decision, head = "NO-GO", "No reliable edge after costs as configured — do not trade live as-is."
+    res["validation"] = {
+        "decision": decision, "headline": head,
+        "dataSource": "mt5_history" if connected else "synthetic_demo",
+        "expectancyR": o.get("expectancyR"), "profitFactor": o.get("profitFactor"),
+        "winRatePct": o.get("winRate"), "maxDrawdownR": o.get("maxDrawdownR"),
+        "trades": n, "span": res.get("span"), "oosConsistencyPct": res.get("oosConsistencyPct"),
+        "checklist": [
+            "1) Validate on real MT5 history here — a GO needs positive expectancy AND consistent folds.",
+            "2) Forward-test on a DEMO account 2–4 weeks before any real money.",
+            "3) Start live at the minimum risk % and scale ONLY after live results match the backtest.",
+            "Note: the backtest is deliberately conservative (SL-before-TP within a bar, no exit slippage, news not modeled).",
+        ],
+    }
+    res["dataSource"] = res["validation"]["dataSource"]
     return res
 
 

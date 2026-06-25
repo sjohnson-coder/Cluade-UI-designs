@@ -328,15 +328,21 @@ class CostAwareBacktester:
         split = int(len(trades) * 0.7)
         ins, oos = trades[:split], trades[split:]
 
+        # Anti-overfit shrinkage: a learned weight is blended TOWARD neutral (1.0) by
+        # ``learningRate`` (0.5 default) — so even an OOS-approved fit only moves a weight
+        # halfway to its in-sample optimum. This stops a noisy correlation on a small sample
+        # from swinging a factor's influence too hard (Bayesian shrinkage toward the prior).
+        shrink = max(0.0, min(1.0, float(p.get("learningRate", 0.5))))
         learned: dict[str, float] = {}
         contributions = []
         for name in names:
             xs = [t["factors"].get(name, 50.0) for t in ins]
             ys = [t["netR"] for t in ins]
             corr = _pearson(xs, ys)
-            w = max(0.3, min(1.8, round(1.0 + 2.0 * corr, 3)))  # corr 0→1.0, +0.3→1.6, −0.2→0.6
+            w_full = 1.0 + 2.0 * corr                       # raw in-sample fit
+            w = max(0.3, min(1.8, round(1.0 + shrink * (w_full - 1.0), 3)))  # shrink toward neutral
             learned[name] = w
-            contributions.append({"factor": name, "correlation": round(corr, 3), "weight": w})
+            contributions.append({"factor": name, "correlation": round(corr, 3), "weight": w, "rawWeight": round(max(0.3, min(1.8, w_full)), 3)})
         contributions.sort(key=lambda x: x["correlation"], reverse=True)
 
         def score(trade, weights):
