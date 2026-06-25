@@ -135,6 +135,61 @@ OUTCOME_REGISTERED: set[str] = set()             # tickets already counted towar
 # Learned confidence-factor weights (from the cost-aware backtest optimizer).
 FACTOR_WEIGHTS_FILE = DATA_DIR / "factor_weights.json"
 
+# ── Decision & Management Journal ────────────────────────────────────────────────────────
+# A persisted, queryable log of WHY the bot did (or did not) trade and every management action
+# it took, so the recurring "why didn't it trade X?" question is always answerable after the fact.
+DECISION_JOURNAL_FILE = DATA_DIR / "decision_journal.jsonl"
+DECISION_JOURNAL: list[dict[str, Any]] = []
+_LAST_ENTRY_SIG: dict[str, Any] = {"sig": None}
+
+def _journal_record(category: str, **fields: Any) -> dict[str, Any]:
+    evt = {"id": int(time.time() * 1000000) % 1_000_000_000,
+           "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "epoch": round(time.time(), 3), "category": category, **fields}
+    DECISION_JOURNAL.insert(0, evt)
+    del DECISION_JOURNAL[5000:]
+    try:
+        with DECISION_JOURNAL_FILE.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(evt, default=str) + "\n")
+    except Exception:
+        pass
+    return evt
+
+def _journal_entry_decision(result: dict[str, Any], heartbeat: dict[str, Any]) -> None:
+    """Record an ENTRY decision — but only on a TAKE or when the SKIP reason CHANGES, so the
+    log shows meaningful transitions instead of thousands of identical 3-second 'waiting' ticks."""
+    matrix = result.get("actionMatrix") or {}
+    mdec = matrix.get("decision") or {}
+    took = bool(result.get("ok")) and not result.get("blocked")
+    blocks = list(heartbeat.get("blockedReasons") or [])
+    primary = str(blocks[0]) if blocks else (result.get("reason") or "")
+    sig = ("TAKE" if took else "SKIP") + "|" + (str(mdec.get("computedSide") or mdec.get("side") or "")) + "|" + primary[:60]
+    if not took and sig == _LAST_ENTRY_SIG.get("sig"):
+        return  # same waiting state as last tick — don't spam the journal
+    _LAST_ENTRY_SIG["sig"] = sig
+    _journal_record("entry",
+                    decision="TAKE_TRADE" if took else "SKIP_OR_WAIT",
+                    side=mdec.get("computedSide") or mdec.get("side"),
+                    confidence=heartbeat.get("confidence"),
+                    quality=heartbeat.get("quality"),
+                    strategy=(mdec.get("selectedStrategy") or {}).get("name") or mdec.get("strategy"),
+                    reason=(result.get("message") or result.get("reason") or "")[:240],
+                    blocks=blocks[:4], softBlocks=list(heartbeat.get("softBlocks") or [])[:3],
+                    opened=took)
+
+def _load_decision_journal() -> None:
+    try:
+        if DECISION_JOURNAL_FILE.exists():
+            for ln in DECISION_JOURNAL_FILE.read_text(encoding="utf-8").splitlines()[-5000:]:
+                try:
+                    DECISION_JOURNAL.append(json.loads(ln))
+                except Exception:
+                    pass
+            DECISION_JOURNAL.sort(key=lambda e: e.get("epoch", 0), reverse=True)
+            del DECISION_JOURNAL[5000:]
+    except Exception:
+        pass
+
 def _load_factor_weights() -> None:
     if FACTOR_WEIGHTS_FILE.exists():
         try:
@@ -151,6 +206,7 @@ def _save_factor_weights(weights: dict[str, Any]) -> None:
         pass
 
 _load_factor_weights()
+_load_decision_journal()
 
 def _backtest_candles(count: int) -> list[dict[str, Any]]:
     """M15 candles for backtesting: real MT5 history when connected, else a synthetic
@@ -511,6 +567,12 @@ def _register_close_outcome(ticket: Any, pnl: float, side: Any, price: Any, sess
     auto = SETTINGS_STATE.get("automation", {}) if isinstance(SETTINGS_STATE.get("automation"), dict) else {}
     now = time.time()
     pnl = _to_float(pnl)
+    try:
+        _journal_record("close", ticket=tk, side=str(side or "").upper(), pnlUsd=round(pnl, 2),
+                        price=_to_float(price), session=session,
+                        outcome="WIN" if pnl > 0 else "LOSS" if pnl < 0 else "FLAT")
+    except Exception:
+        pass
     if pnl < 0:
         streak = int(AUTO_TRADE_STATE.get("lossStreak", 0)) + 1
         AUTO_TRADE_STATE["lossStreak"] = streak
@@ -766,6 +828,10 @@ POSITION_PROTECTION_STATE: dict[str, dict[str, Any]] = {}
 def _management_alert(title: str, body: str, kind: str = "success") -> None:
     """Push a UI notification AND send Telegram for a trade-management event."""
     _push_notification(title, body, kind)
+    try:
+        _journal_record("management", title=title, detail=str(body)[:240], kind=kind)
+    except Exception:
+        pass
     tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
     if tg.get("enabled"):
         emoji = {"success": "🟢", "warning": "🟡", "danger": "🔴", "info": "🔵"}.get(kind, "🔔")
@@ -1938,6 +2004,33 @@ def journal(date_from: str | None = None, date_to: str | None = None):
     return _live_journal(date_from, date_to)
 
 
+@app.get("/api/journal/decisions")
+def journal_decisions(category: str | None = None, limit: int = 250):
+    """The Decision & Management Journal: WHY the bot did or didn't trade (entry decisions with
+    confidence + blocking reasons), every management action (BE/trail/recovery-room/fast-fail/
+    partials), and close outcomes — persisted across restarts."""
+    items = DECISION_JOURNAL
+    if category and category not in ("all", ""):
+        items = [e for e in items if e.get("category") == category]
+    counts: dict[str, int] = {}
+    for e in DECISION_JOURNAL:
+        c = str(e.get("category", "?"))
+        counts[c] = counts.get(c, 0) + 1
+    return {"ok": True, "items": items[: max(1, min(int(limit or 250), 1000))],
+            "counts": counts, "total": len(DECISION_JOURNAL)}
+
+
+@app.post("/api/journal/decisions/clear")
+def journal_decisions_clear():
+    DECISION_JOURNAL.clear()
+    _LAST_ENTRY_SIG["sig"] = None
+    try:
+        DECISION_JOURNAL_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return {"ok": True, "message": "Decision journal cleared."}
+
+
 @app.get("/api/settings")
 def settings():
     _apply_runtime_settings()
@@ -2050,6 +2143,10 @@ def _record_auto_heartbeat(result: dict[str, Any]) -> dict[str, Any]:
     }
     AUTO_TRADE_HEARTBEAT.insert(0, entry)
     del AUTO_TRADE_HEARTBEAT[100:]
+    try:
+        _journal_entry_decision(result, entry)
+    except Exception:
+        pass
     return entry
 
 

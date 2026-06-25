@@ -110,6 +110,8 @@ export const api = {
   monteCarlo: (payload: unknown) => request('/api/backtest/monte-carlo', { ok: false }, { method: 'POST', body: JSON.stringify(payload) }),
   backtestRun: (payload: unknown) => request('/api/backtest/run', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   backtestValidate: (payload: unknown) => request('/api/backtest/validate', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  journalDecisions: (category?: string, limit = 250) => request(`/api/journal/decisions?category=${encodeURIComponent(category || 'all')}&limit=${limit}`, { ok: false, items: [], counts: {} }),
+  journalDecisionsClear: () => request('/api/journal/decisions/clear', { ok: false }, { method: 'POST', body: JSON.stringify({}) }),
   backtestOptimizeWeights: (payload: unknown) => request('/api/backtest/optimize-weights', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   backtestWeights: () => request('/api/backtest/weights', { ok: false }),
   backtestWeightsReset: () => request('/api/backtest/weights/reset', { ok: false }, { method: 'POST', body: JSON.stringify({}) }),

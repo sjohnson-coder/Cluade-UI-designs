@@ -13,7 +13,7 @@ export default function Analytics(){
   const getReport=async()=>setReport(await api.docsInfo());
   const topRows=data.topStrategies||[];
   const history=useMemo(()=>{const rows=data.history||[];return rows.filter((r:any)=>{const d=String(r.closeTime||r.date||'').slice(0,10);if(dateFrom&&d<dateFrom)return false;if(dateTo&&d>dateTo)return false;return true})},[data,dateFrom,dateTo]);
-  const tabs=['Overview','Performance','Trades','Strategies','Backtest','Risk','Reports','Custom'];
+  const tabs=['Overview','Performance','Trades','Strategies','Decisions','Backtest','Risk','Reports','Custom'];
   return <div className="analytics-page exact-analytics">
     <PageHeader title="Analytics" subtitle="Deep performance insights and system intelligence." right={<><input className="input date-control" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/><input className="input date-control" type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/><select className="input account-filter" value={account} onChange={e=>setAccount(e.target.value)}><option>All Accounts</option><option>GodMode Bot Only</option></select><button className="outline-button" onClick={load}><RefreshCcw size={14}/> Refresh</button><button className="outline-button" onClick={()=>downloadExport('analytics','json')}><Download size={14}/> Export</button></>}/>
     <div className="tabs-line">{tabs.map(x=><button key={x} className={tab===x?'active':''} onClick={()=>setTab(x)}>{x}</button>)}</div>
@@ -24,6 +24,7 @@ export default function Analytics(){
     {tab==='Strategies'&&<div className="analytics-layout"><div className="analytics-grid"><Card><SectionTitle title="Top Strategies"/><DataTable columns={['Strategy','Net PnL','Win Rate','Trades']} rows={topRows}/></Card><Card><SectionTitle title="Expectancy vs Win Rate"/><ScatterPerformance data={data.expectancyScatter||[]}/></Card></div></div>}
     {tab==='Risk'&&<div className="analytics-layout"><div className="analytics-grid"><Card><SectionTitle title="Win Rate Breakdown"/><Donut value={Number(k.winRate||0)}/></Card><Card><SectionTitle title="Drawdown Curve"/><DrawdownChart data={data.drawdown||[]}/></Card><Card><SectionTitle title="Confidence vs Result"/><ScatterPerformance data={data.confidenceResult||[]}/></Card></div></div>}
     {tab==='Reports'&&<Card><SectionTitle title="Full Report" right={<button className="outline-button" onClick={getReport}><FileText size={14}/> View Full Report</button>}/>{report?<pre className="code-box">{JSON.stringify(report,null,2)}</pre>:<p className="muted">Press View Full Report to generate the backend/API report information.</p>}</Card>}
+    {tab==='Decisions'&&<DecisionLogTab/>}
     {tab==='Backtest'&&<BacktestTab/>}
     {tab==='Custom'&&<Card><SectionTitle title="Custom Analytics Builder"/><p className="muted">Custom filters use the selected date range and bot-only MT5 trade history. More report templates can be added here.</p></Card>}
   </div>
@@ -65,6 +66,35 @@ function BacktestTab(){
       <p className="muted tiny">Trained on {opt.trainedOn} trades, validated on {opt.validatedOn}. Out-of-sample score↔outcome correlation: {opt.outOfSample?.before?.scoreOutcomeCorr} → {opt.outOfSample?.after?.scoreOutcomeCorr}. {opt.applied?'Applied & persisted to the live engine.':'Not applied (toggle "Apply if improved").'}</p>
       <DataTable columns={['factor','correlation','weight']} rows={opt.factorContributions||[]} renderCell={(r,c)=>c==='correlation'?<span className={Number(r.correlation)>=0?'positive':'negative'}>{r.correlation}</span>:r[c]}/></Card>}
     {res&&!res.ok&&<Card className="span-2"><p className="muted">{res.message||'Backtest unavailable.'}</p></Card>}
+  </div></div>;
+}
+function DecisionLogTab(){
+  const [items,setItems]=useState<any[]>([]),[counts,setCounts]=useState<any>({}),[cat,setCat]=useState('all'),[loading,setLoading]=useState(false);
+  const load=async()=>{setLoading(true);const r:any=await api.journalDecisions(cat,300);setItems(r?.items||[]);setCounts(r?.counts||{});setLoading(false)};
+  useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id)},[cat]);
+  const clear=async()=>{await api.journalDecisionsClear();load()};
+  const cats:[string,string][]=[['all','All'],['entry','Entries'],['management','Management'],['close','Closes']];
+  const fmtTime=(e:any)=>String(e.ts||'').replace('T',' ').replace('Z',' UTC');
+  const badge=(c:string)=>c==='entry'?<Tag color="blue">entry</Tag>:c==='management'?<Tag color="purple">mgmt</Tag>:<Tag color="gold">close</Tag>;
+  return <div className="analytics-layout"><div className="analytics-grid">
+    <Card className="span-2"><SectionTitle title="Decision & Management Journal" right={<Tag color="green">WHY it traded — or didn't</Tag>}/>
+      <p className="tiny muted">Every entry decision (taken AND skipped, with the exact confidence + blocking reason), every management action (break-even, trail, recovery-room, fast-fail, partials), and every close outcome — persisted across restarts. Identical "waiting" ticks are collapsed; a new row appears whenever the bot's decision or reason CHANGES.</p>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
+        {cats.map(([key,label])=><button key={key} className={cat===key?'gold-button':'ghost-button'} style={{height:32}} onClick={()=>setCat(key)}>{label}{counts[key]!=null&&key!=='all'?` (${counts[key]})`:''}</button>)}
+        <span style={{flex:1}}/>
+        <button className="ghost-button" style={{height:32}} onClick={load}>{loading?'…':'Refresh'}</button>
+        <button className="ghost-button" style={{height:32}} onClick={clear}>Clear</button>
+      </div>
+    </Card>
+    <Card className="span-2"><DataTable columns={['time','type','what','side','conf','quality','detail','outcome']} rows={items.map((e:any)=>({
+      _e:e, time:fmtTime(e), type:e.category,
+      what:e.category==='entry'?e.decision:e.category==='management'?e.title:`Closed #${e.ticket||''}`,
+      side:e.side||'', conf:e.confidence!=null?`${e.confidence}%`:'', quality:e.quality||'',
+      detail:e.category==='entry'?((e.blocks&&e.blocks[0])||e.reason||''):e.detail||'',
+      outcome:e.category==='close'?`${e.outcome} ${Number(e.pnlUsd)>=0?'+':''}${e.pnlUsd}`:(e.opened?'OPENED':''),
+    }))} renderCell={(r:any,c:string)=>c==='type'?badge(r._e.category):c==='outcome'&&r._e.category==='close'?<span className={Number(r._e.pnlUsd)>=0?'positive':'negative'}>{r.outcome}</span>:c==='what'&&r._e.category==='entry'?<span className={r._e.decision==='TAKE_TRADE'?'positive':'muted'}>{r.what}</span>:r[c]}/>
+      {!items.length&&<p className="muted" style={{marginTop:10}}>No decisions logged yet. With Auto-Trading ON, the bot records a row each time its decision or reason changes.</p>}
+    </Card>
   </div></div>;
 }
 function AnalyticsOverview({data,k,currency,report,getReport}:{data:any;k:any;currency:string;report:any;getReport:()=>void}){return <div className="analytics-layout"><div className="analytics-grid"><Card className="span-2"><SectionTitle title="Equity Curve" right={<Tag color="purple">Bot only</Tag>}/><EquityCurve data={data.equityCurve||[]} height={270}/><div className="chart-summary"><span>Starting Balance <strong>{money(data.startingBalance,currency)}</strong></span><span>Ending Balance <strong>{money(data.endingBalance,currency)}</strong></span><span>Net PnL <strong className="positive">{money(k.netProfit,currency)}</strong></span><span>Return <strong>{k.returnPct||0}%</strong></span></div></Card><Card><SectionTitle title="Returns"/><ReturnsHeatmap data={data.returns||[]}/></Card><Card><SectionTitle title="Top Strategies"/><DataTable columns={['Strategy','Net PnL','Win Rate','Trades']} rows={data.topStrategies||[]} /></Card><Card><SectionTitle title="Win Rate Breakdown"/><Donut value={Number(k.winRate||0)}/><Checklist items={[{label:'Buy Trades',value:`${data.buyWinRate||0}%`},{label:'Sell Trades',value:`${data.sellWinRate||0}%`},{label:'Break-even',value:`${data.breakEvenRate||0}%`},{label:'Loss Trades',value:`${data.lossRate||0}%`}]}/></Card><Card><SectionTitle title="Session Performance"/><DataTable columns={['Session','Net PnL','Win Rate','Trades','Expectancy']} rows={data.sessions||[]} /></Card><Card><SectionTitle title="Market Heatmap PnL"/><BarDistribution data={data.marketHeatmap||[]}/></Card><Card><SectionTitle title="Expectancy vs Win Rate"/><ScatterPerformance data={data.expectancyScatter||[]}/></Card><Card><SectionTitle title="Drawdown Curve"/><DrawdownChart data={data.drawdown||[]}/></Card><Card><SectionTitle title="Execution Quality"/><BarDistribution data={data.executionQuality||[]}/><Checklist items={[{label:'Avg Slippage',value:String(data.avgSlippage??'—')},{label:'Fill Quality',value:data.fillQuality||'Waiting'}]}/></Card><Card><SectionTitle title="Confidence vs Result"/><ScatterPerformance data={data.confidenceResult||[]}/></Card></div><div className="right-stack side-panel-sticky"><Card><SectionTitle title="Analytics Insights"/><Checklist items={[{label:'Strong performance across the board',value:k.totalTrades?'Detected':'Waiting'},{label:'Best Performing Strategy',value:(data.topStrategies||[])[0]?.Strategy||'—'},{label:'Optimal Trading Session',value:(data.sessions||[])[0]?.Session||'—'},{label:'Risk Management',value:'Drawdown monitored',type:'success'},{label:'Opportunities',value:'Needs more bot-only sample'}]}/><div className="report-action"><p className="muted">Generate a complete bot-only report from real MT5 trade history.</p><button className="outline-button full" onClick={getReport}><FileText size={14}/> View Full Report</button></div>{report&&<pre className="code-box">{JSON.stringify(report,null,2)}</pre>}</Card><Card><SectionTitle title="Key Takeaways"/><Checklist items={[{label:'Focus on London session setups',value:'Review'},{label:'Leverage high-confidence signals >70%',value:'Active'},{label:'Maintain risk settings',value:'Current'},{label:'Scale winners only with prove/confirm/press pyramid',value:'Protected'}]}/></Card></div></div>}
