@@ -37,11 +37,14 @@ SCHEMA_HINT = (
 )
 
 
-def sanitize_profile(raw: dict[str, Any]) -> dict[str, Any] | None:
-    """Strictly whitelist + clamp an LLM-proposed candidate. Returns a clean candidate or None.
-    This is the security boundary: anything not explicitly allowed is dropped."""
+def sanitize_profile(raw: dict[str, Any], source: str = "ai") -> dict[str, Any] | None:
+    """Strictly whitelist + clamp an externally-proposed candidate (LLM or trusted feed). Returns
+    a clean candidate or None. This is the security boundary: anything not explicitly allowed is
+    dropped — applied to feed candidates too, so even a compromised 'trusted' URL can't inject
+    code or out-of-range parameters."""
     if not isinstance(raw, dict):
         return None
+    source = re.sub(r"[^a-z]", "", str(source).lower()) or "ext"
     rid = re.sub(r"[^a-z0-9_]", "", str(raw.get("id", "")).lower().replace(" ", "_"))[:40]
     name = str(raw.get("name", "") or rid or "AI candidate")[:60]
     thesis = str(raw.get("thesis", ""))[:200]
@@ -65,7 +68,7 @@ def sanitize_profile(raw: dict[str, Any]) -> dict[str, Any] | None:
         # anything else (incl. any "code"/"rule"/unknown key) is silently dropped
     if not rid or not prof:
         return None
-    return {"id": f"ai_{rid}"[:43], "name": name, "thesis": thesis, "source": "ai", "profile": prof}
+    return {"id": f"{source}_{rid}"[:43], "name": name, "thesis": thesis, "source": source, "profile": prof}
 
 
 def _build_request(provider: str, api_key: str, model: str, prompt: str) -> tuple[str, dict[str, str], dict[str, Any]]:
@@ -107,6 +110,34 @@ def _parse_array(text: str) -> list[dict[str, Any]]:
         return arr if isinstance(arr, list) else []
     except Exception:
         return []
+
+
+def fetch_feed_candidates(url: str, key: str = "", timeout: float = 15.0,
+                          _transport=None) -> dict[str, Any]:
+    """Pull candidate PROFILES from a trusted strategy-feed URL (a JSON array, or {"candidates":[...]})
+    and sanitize every one — same whitelist/clamp as the AI path, so a compromised feed still can't
+    inject code or out-of-range parameters. ``_transport`` lets tests inject a fake HTTP layer."""
+    url = (url or "").strip()
+    if not url:
+        return {"ok": False, "message": "No strategy feed URL configured."}
+    try:
+        if _transport is not None:
+            data = _transport(url, key)
+        else:
+            u = url + (("&" if "?" in url else "?") + "apikey=" + key) if key else url
+            headers = {"User-Agent": "GodModeGoldBot/1.0"}
+            if key:
+                headers["Authorization"] = f"Bearer {key}"
+            req = urllib.request.Request(u, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8", "ignore"))
+    except Exception as exc:
+        return {"ok": False, "message": f"Strategy feed fetch failed: {exc}"}
+    items = data.get("candidates", data) if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return {"ok": False, "message": "Strategy feed did not return a JSON array of candidates."}
+    clean = [c for c in (sanitize_profile(r, source="feed") for r in items) if c]
+    return {"ok": True, "candidates": clean, "rawCount": len(items), "acceptedCount": len(clean)}
 
 
 def generate_candidates(provider: str, api_key: str, model: str, context: dict[str, Any],

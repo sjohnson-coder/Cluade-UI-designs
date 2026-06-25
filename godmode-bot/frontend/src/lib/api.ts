@@ -115,6 +115,7 @@ export const api = {
   labStatus: () => request('/api/lab/status', { ok: false }),
   labInstall: (id: string) => request('/api/lab/install', { ok: false }, { method: 'POST', body: JSON.stringify({ id }) }),
   labGenerate: (payload?: unknown) => request('/api/lab/generate', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  labFetchFeed: () => request('/api/lab/fetch-feed', { ok: false }, { method: 'POST', body: JSON.stringify({}) }),
   journalDecisionsClear: () => request('/api/journal/decisions/clear', { ok: false }, { method: 'POST', body: JSON.stringify({}) }),
   backtestOptimizeWeights: (payload: unknown) => request('/api/backtest/optimize-weights', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   backtestWeights: () => request('/api/backtest/weights', { ok: false }),

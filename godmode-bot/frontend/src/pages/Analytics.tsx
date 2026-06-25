@@ -75,6 +75,7 @@ function StrategyLabTab(){
   const run=async()=>{setLoading(true);setMsg('');const r:any=await api.labRun({});setRes(r);setLoading(false);if(!r?.ok)setMsg(r?.message||'Lab run failed.')};
   const install=async(id:string,name:string)=>{const r:any=await api.labInstall(id);if(r?.ok){setInstalled(r.installed);const e=r.evidence;setMsg(`✓ Installed ${name}. ${e?`Evidence: ${e.expectancyR}R/trade · PF ${e.profitFactor} · ${e.oosConsistencyPct}% folds positive · ${e.trades} trades.`:''} ${r.thesis||''}`)}else setMsg(r?.message||'Install failed.')};
   const genAI=async()=>{setLoading(true);setMsg('');const r:any=await api.labGenerate({});setLoading(false);if(r?.ok){setMsg(`🤖 ${r.message}`);run()}else setMsg(r?.message||'AI generation failed. Configure it in Settings → AI Strategy Generator.')};
+  const fetchFeed=async()=>{setLoading(true);setMsg('');const r:any=await api.labFetchFeed();setLoading(false);if(r?.ok){setMsg(`📡 ${r.message}`);run()}else setMsg(r?.message||'Feed fetch failed. Set a URL in Settings → Strategy Lab.')};
   const rec=res?.recommendation; const base=res?.baseline||{};
   const rows=[{name:res?.baseline?.name||'Your current config',...base,_base:true},...(res?.candidates||[])];
   return <div className="analytics-layout"><div className="analytics-grid">
@@ -83,6 +84,7 @@ function StrategyLabTab(){
       <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',marginTop:10}}>
         <button className="gold-button" onClick={run} disabled={loading} style={{height:38}}>{loading?'Testing all candidates…':'🧠 Run Strategy Lab'}</button>
         <button className="outline-button" onClick={genAI} disabled={loading} style={{height:38}} title="Ask your configured Claude/ChatGPT to propose new candidate styles (Settings → AI Strategy Generator)">🤖 Generate with AI</button>
+        <button className="outline-button" onClick={fetchFeed} disabled={loading} style={{height:38}} title="Pull candidate profiles from your trusted feed URL (Settings → Strategy Lab)">📡 Fetch feed</button>
         {installed&&<span className="tiny muted">Installed: <strong>{installed.name}</strong></span>}
       </div>
       {res?.span&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles</p>}

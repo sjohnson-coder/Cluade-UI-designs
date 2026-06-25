@@ -266,6 +266,8 @@ def _default_settings() -> dict[str, Any]:
                       "dxyKey": "", "us10yKey": "", "economicCalendarKey": ""},
         "aiProvider": {"enabled": False, "provider": "claude", "apiKey": "",
                        "model": "", "candidatesPerRun": 3},
+        "strategyLab": {"feedUrl": "", "feedKey": "", "autoRunDaily": False,
+                        "autoRunHourUtc": 22, "improveMarginR": 0.05},
         "security": {"requireApiKey": bool(api_key), "maskAccountBalance": False, "autoLogoutMinutes": 30},
         "meta": {"lastSaved": None, "source": "persistent_json"},
     }
@@ -1273,10 +1275,10 @@ def _send_wait_forecast() -> None:
 async def _recap_loop() -> None:
     while True:
         try:
+            tm = time.gmtime()
+            today = time.strftime("%Y-%m-%d", tm)
             tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
             if tg.get("enabled"):
-                tm = time.gmtime()
-                today = time.strftime("%Y-%m-%d", tm)
                 week = time.strftime("%Y-W%U", tm)
                 hour = int(tg.get("recapHourUtc", 21))
                 if tm.tm_hour == hour and tg.get("dailyRecap", True) and RECAP_STATE.get("lastDaily") != today:
@@ -1284,6 +1286,14 @@ async def _recap_loop() -> None:
                 if tm.tm_wday == 6 and tm.tm_hour == hour and tg.get("weeklyRecap", True) and RECAP_STATE.get("lastWeekly") != week:
                     _send_recap(True); RECAP_STATE["lastWeekly"] = week
                 _send_wait_forecast()
+            # Daily AI Strategy Lab auto-run (independent of Telegram). Runs once/day at the set UTC
+            # hour when connected, in a thread so the heavy backtest never blocks the event loop.
+            lab_cfg = SETTINGS_STATE.get("strategyLab", {}) if isinstance(SETTINGS_STATE.get("strategyLab"), dict) else {}
+            if lab_cfg.get("autoRunDaily") and mt5_bridge.status().get("connected") \
+                    and tm.tm_hour == int(lab_cfg.get("autoRunHourUtc", 22)) and RECAP_STATE.get("lastLabRun") != today:
+                RECAP_STATE["lastLabRun"] = today
+                res = await asyncio.get_event_loop().run_in_executor(None, _run_strategy_lab, 60000)
+                _alert_lab_recommendation(res)
             await asyncio.sleep(60)
         except asyncio.CancelledError:
             raise
@@ -2806,11 +2816,24 @@ def backtest_weights_reset():
 
 
 # ── AI Strategy Lab ──────────────────────────────────────────────────────────────────────
+def _refresh_strategy_feed() -> int:
+    """Pull candidate profiles from the trusted strategy-feed URL (if configured) into the pool."""
+    cfg = SETTINGS_STATE.get("strategyLab", {}) if isinstance(SETTINGS_STATE.get("strategyLab"), dict) else {}
+    url = str(cfg.get("feedUrl", "") or "").strip()
+    if not url:
+        return 0
+    res = ai_strategy_gen.fetch_feed_candidates(url, str(cfg.get("feedKey", "") or ""))
+    return strategy_lab.add_candidates(res.get("candidates", [])) if res.get("ok") else 0
+
+
 def _run_strategy_lab(bars: int = 60000) -> dict[str, Any]:
     """Back-/forward-test every candidate trading style + the live baseline over your history."""
+    _refresh_strategy_feed()   # pull any trusted-feed candidates before testing
     connected = bool(mt5_bridge.status().get("connected"))
     candles = _backtest_candles(bars)
+    lab_cfg = SETTINGS_STATE.get("strategyLab", {}) if isinstance(SETTINGS_STATE.get("strategyLab"), dict) else {}
     params = _backtest_params({"spread": 0.25, "commission": 0.07, "minSample": 30, "folds": 6,
+                               "improveMarginR": float(lab_cfg.get("improveMarginR", 0.05) or 0.05),
                                "dataSource": "mt5_history" if connected else "synthetic_demo"})
     baseline = decision_engine.strictness_dict()
     res = strategy_lab.evaluate(candles, decision_engine, list(STRATEGIES_STATE.values()), backtester, baseline, params)
@@ -2825,11 +2848,9 @@ def lab_candidates():
     return {"ok": True, "candidates": strategy_lab.candidates(), "installed": LAB_STATE.get("installedProfile")}
 
 
-@app.post("/api/lab/run")
-def lab_run(payload: dict[str, Any] = Body(default={})):
-    """Run the lab now. If a candidate genuinely beats your live config out-of-sample, raise a
-    notification + top-bar + sound + Telegram alert prompting you to review & install it."""
-    res = _run_strategy_lab(int(payload.get("bars", 60000)))
+def _alert_lab_recommendation(res: dict[str, Any]) -> None:
+    """Fire the notification + top-bar + sound + Telegram alert when the lab finds a NEW better
+    candidate (deduped by signature so the same recommendation doesn't re-alert)."""
     rec = res.get("recommendation")
     if rec and res.get("signature") != LAB_STATE.get("lastRecSig"):
         LAB_STATE["lastRecSig"] = res.get("signature")
@@ -2837,6 +2858,29 @@ def lab_run(payload: dict[str, Any] = Body(default={})):
         tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
         if tg.get("enabled"):
             _telegram_send_text(f"🧠 *GodMode — better strategy found*\n*{rec['name']}*\n{rec['why']}\n\nReview the back/forward test and install it in the dashboard → Analytics → Strategy Lab.")
+
+
+@app.post("/api/lab/run")
+def lab_run(payload: dict[str, Any] = Body(default={})):
+    """Run the lab now. If a candidate genuinely beats your live config out-of-sample, raise a
+    notification + top-bar + sound + Telegram alert prompting you to review & install it."""
+    res = _run_strategy_lab(int(payload.get("bars", 60000)))
+    _alert_lab_recommendation(res)
+    return res
+
+
+@app.post("/api/lab/fetch-feed")
+def lab_fetch_feed():
+    """Pull candidate profiles from the trusted strategy-feed URL now (Settings → Strategy Lab)."""
+    cfg = SETTINGS_STATE.get("strategyLab", {}) if isinstance(SETTINGS_STATE.get("strategyLab"), dict) else {}
+    url = str(cfg.get("feedUrl", "") or "").strip()
+    if not url:
+        return {"ok": False, "message": "No strategy feed URL set. Add one in Settings → Strategy Lab."}
+    res = ai_strategy_gen.fetch_feed_candidates(url, str(cfg.get("feedKey", "") or ""))
+    if res.get("ok"):
+        res["added"] = strategy_lab.add_candidates(res.get("candidates", []))
+        res["total"] = len(strategy_lab.candidates())
+        res["message"] = f"Feed returned {res.get('acceptedCount', 0)} valid candidate(s); {res['added']} added. Run the lab to test them."
     return res
 
 
