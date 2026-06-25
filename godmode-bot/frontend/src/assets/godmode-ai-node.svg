@@ -1,0 +1,26 @@
+<svg width="420" height="180" viewBox="0 0 420 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(210 88) rotate(90) scale(84 150)">
+      <stop stop-color="#D8A33A" stop-opacity="0.24"/>
+      <stop offset="0.56" stop-color="#D8A33A" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#D8A33A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="line" x1="30" y1="0" x2="390" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D8A33A" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#C99A45" stop-opacity="0.54"/>
+      <stop offset="1" stop-color="#D8A33A" stop-opacity="0.14"/>
+    </linearGradient>
+  </defs>
+  <rect width="420" height="180" fill="url(#glow)"/>
+  <g stroke="url(#line)" stroke-width="1.2">
+    <path d="M210 92L64 34M210 92L84 92M210 92L67 144M210 92L132 29M210 92L138 152M210 92L288 28M210 92L356 36M210 92L342 92M210 92L356 144M210 92L292 154"/>
+    <path d="M132 29L64 34L84 92L67 144L138 152" opacity=".55"/>
+    <path d="M288 28L356 36L342 92L356 144L292 154" opacity=".55"/>
+  </g>
+  <g fill="#D8A33A">
+    <circle cx="64" cy="34" r="3" opacity=".85"/><circle cx="84" cy="92" r="2.4" opacity=".65"/><circle cx="67" cy="144" r="2.8" opacity=".75"/><circle cx="132" cy="29" r="2.5" opacity=".75"/><circle cx="138" cy="152" r="2.4" opacity=".65"/>
+    <circle cx="288" cy="28" r="2.5" opacity=".78"/><circle cx="356" cy="36" r="3" opacity=".82"/><circle cx="342" cy="92" r="2.4" opacity=".65"/><circle cx="356" cy="144" r="3" opacity=".82"/><circle cx="292" cy="154" r="2.5" opacity=".78"/>
+    <circle cx="210" cy="92" r="5" opacity=".95"/>
+  </g>
+  <text x="210" y="84" text-anchor="middle" font-family="Inter, SF Pro Display, Arial" font-size="34" font-weight="700" fill="#D8A33A" opacity=".95">AI</text>
+</svg>
