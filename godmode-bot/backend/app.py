@@ -192,6 +192,7 @@ def _default_settings() -> dict[str, Any]:
             "scalpMaxConcurrent": 2,
             "scalpMinQuality": "STANDARD",       # STANDARD or SNIPER only
             "winStreakLotScaling": True,         # scale each NEW trade's lot on a win streak
+            "volNormalizedSizing": True,         # size BASE lot to risk ~trading.riskPerTrade% per trade (constant $ risk)
         },
         "mt5Connection": {"terminalPath": mt5_bridge.terminal_path, "login": mt5_bridge.login, "password": "", "server": mt5_bridge.server, "autoConnect": True},
         "risk": {"maxDailyLossPct": 5.0, "maxOpenTrades": 3, "maxCorrelatedTrades": 1, "equityStopLossPct": 20.0, "useEquityProtection": True},
@@ -1997,6 +1998,47 @@ def _record_auto_heartbeat(result: dict[str, Any]) -> dict[str, Any]:
     return entry
 
 
+def _volatility_normalized_base_lot(symbol: str, entry: float, sl: float, fallback_lot: float) -> dict[str, Any]:
+    """Size the BASE lot so the trade risks ~``trading.riskPerTrade`` % of equity given the
+    REAL stop distance, instead of a fixed lot. This keeps dollar risk constant across calm
+    and volatile (wide-stop) regimes — the single biggest real-money quality fix.
+
+    Broker-accurate: loss-per-lot = (stopDistance / tickSize) * tickValue. Falls back to the
+    Gold contract model ($100 per $1 move per lot) when tick specs are unavailable, and to the
+    fixed ``fallback_lot`` whenever equity / stop / specs aren't usable. Always rounds DOWN to
+    the broker volume step (never overshoot the risk budget) and clamps to broker min/max.
+    """
+    try:
+        tcfg = SETTINGS_STATE.get("trading", {}) if isinstance(SETTINGS_STATE.get("trading"), dict) else {}
+        risk_pct = float(tcfg.get("riskPerTrade", 0.5) or 0.5)
+        stop_dist = abs(float(entry) - float(sl))
+        equity = float(_live_account().get("equity") or 0)
+        if stop_dist <= 0 or equity <= 0 or risk_pct <= 0:
+            return {"lot": round(fallback_lot, 2), "source": "fallback_no_inputs"}
+        specs = mt5_bridge.symbol_specs(symbol)
+        tick_val = float(specs.get("tradeTickValue") or 0.0)
+        tick_size = float(specs.get("tradeTickSize") or 0.0)
+        if tick_val > 0 and tick_size > 0:
+            loss_per_lot = (stop_dist / tick_size) * tick_val
+        else:
+            loss_per_lot = stop_dist * 100.0   # XAUUSD contract = 100 oz → $100 per $1 move per lot
+        if loss_per_lot <= 0:
+            return {"lot": round(fallback_lot, 2), "source": "fallback_bad_specs"}
+        risk_cash = equity * risk_pct / 100.0
+        raw_lot = risk_cash / loss_per_lot
+        minv = float(specs.get("volumeMin", 0.01) or 0.01)
+        step = float(specs.get("volumeStep", 0.01) or 0.01) or 0.01
+        maxv = float(specs.get("volumeMax", 100.0) or 100.0)
+        stepped = (int(raw_lot / step)) * step          # round DOWN to a whole step
+        lot = round(max(minv, min(maxv, stepped)), 2)
+        return {"lot": lot, "rawLot": round(raw_lot, 4), "riskCash": round(risk_cash, 2),
+                "riskedAtMin": round(minv * loss_per_lot, 2), "actualRisk": round(lot * loss_per_lot, 2),
+                "riskPct": risk_pct, "stopDist": round(stop_dist, 2), "minClamped": stepped < minv,
+                "source": specs.get("source", "calc")}
+    except Exception as exc:
+        return {"lot": round(fallback_lot, 2), "source": f"fallback_err:{exc}"}
+
+
 def _auto_trade_tick(reason: str = "manual_tick") -> dict[str, Any]:
     status_payload = mt5_bridge.status()
     execution = SETTINGS_STATE.get("execution", {}) if isinstance(SETTINGS_STATE.get("execution"), dict) else {}
@@ -2137,30 +2179,42 @@ def _auto_trade_tick(reason: str = "manual_tick") -> dict[str, Any]:
         if plan.get("tp4"):
             _extra["tp"] = plan.get("tp4")
     payload = _order_payload_from_market(_extra)
+    # ── Volatility-normalized BASE lot: size so the trade risks ~riskPerTrade% of equity given
+    # the REAL stop distance (constant dollar risk across calm vs volatile/wide-stop regimes).
+    # The win-streak ladder then rides ON TOP of this risk-based base. Pyramid ADDs keep the
+    # engine's own protected add-sizing.
+    vbase = base_lot
+    vol_info: dict[str, Any] | None = None
+    if auto_cfg.get("volNormalizedSizing", True) and not is_pyramid_add and _extra.get("sl"):
+        entry_px = float(payload.get("price") or market.get("price") or 0)
+        vol_info = _volatility_normalized_base_lot(payload.get("symbol", symbol), entry_px, float(_extra["sl"]), base_lot)
+        vbase = float(vol_info.get("lot") or base_lot)
     if is_pyramid_add:
         # Protected pyramid ADD sizing (adds to an OPEN position) — engine's next add lot.
         pyr = matrix.get("pyramiding", {}) if isinstance(matrix.get("pyramiding"), dict) else {}
         next_lot = float((pyr.get("nextAdd") or {}).get("lot") or pyr.get("nextLot") or base_lot)
         payload["volume"] = max(base_lot, next_lot)
     elif quality == "SCOUT":
-        payload["volume"] = base_lot   # scout = reduced-quality entry, always base lot
+        payload["volume"] = vbase   # scout = reduced-quality entry; risk-based base lot
         payload["scoutEntry"] = True
     elif auto_cfg.get("winStreakLotScaling", True):
-        # WIN-STREAK LOT LADDER (per NEW trade): first trade = base lot; each consecutive
-        # win scales the next trade by lotStep up to maxLot; any loss resets to base.
+        # WIN-STREAK LOT LADDER (per NEW trade): first trade = (risk-based) base lot; each
+        # consecutive win scales the next trade by lotStep up to maxLot; any loss resets to base.
         pyr_set = SETTINGS_STATE.get("pyramiding", {}) if isinstance(SETTINGS_STATE.get("pyramiding"), dict) else {}
         lot_step = float(pyr_set.get("lotStep") or 0.01)
         max_lot = float(pyr_set.get("maxLot") or 0.05)
         ws = int(AUTO_TRADE_STATE.get("winStreak", 0))
-        payload["volume"] = round(min(max_lot, base_lot + lot_step * ws), 2)
-    elif ai_cfg.get("firstEntryLotMode", "base_lot_only") == "base_lot_only":
-        payload["volume"] = base_lot
+        if vol_info is not None and vbase > max_lot + 1e-9:
+            vol_info["maxLotCapped"] = True   # risk-based size exceeds the Max Lot ceiling
+        payload["volume"] = round(min(max_lot, vbase + lot_step * ws), 2)
+    else:
+        payload["volume"] = vbase
     result = mt5_bridge.execute(payload)
     if result.get("ok"):
         AUTO_TRADE_STATE["lastFire"] = now
         _capture_entry_context(result, decision, payload, entry_type, strategy_name)
         result["event"] = _notify_trade_event("auto_trade", result, payload)
-    wrapped = {"ok": bool(result.get("ok")), "reason": reason, "message": result.get("message", "Auto trade evaluated."), "quality": quality, "scoutEntry": quality == "SCOUT", "actionMatrix": matrix, "execution": result, "event": result.get("event")}
+    wrapped = {"ok": bool(result.get("ok")), "reason": reason, "message": result.get("message", "Auto trade evaluated."), "quality": quality, "scoutEntry": quality == "SCOUT", "actionMatrix": matrix, "execution": result, "event": result.get("event"), "sizing": vol_info}
     wrapped["heartbeat"] = _record_auto_heartbeat(wrapped)
     return wrapped
 
