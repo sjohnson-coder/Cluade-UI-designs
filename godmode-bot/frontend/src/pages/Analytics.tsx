@@ -74,6 +74,7 @@ function StrategyLabTab(){
   useEffect(()=>{(async()=>{const s:any=await api.labStatus();if(s?.result)setRes(s.result);if(s?.installed)setInstalled(s.installed)})()},[]);
   const run=async()=>{setLoading(true);setMsg('');const r:any=await api.labRun({});setRes(r);setLoading(false);if(!r?.ok)setMsg(r?.message||'Lab run failed.')};
   const install=async(id:string,name:string)=>{const r:any=await api.labInstall(id);if(r?.ok){setInstalled(r.installed);const e=r.evidence;setMsg(`✓ Installed ${name}. ${e?`Evidence: ${e.expectancyR}R/trade · PF ${e.profitFactor} · ${e.oosConsistencyPct}% folds positive · ${e.trades} trades.`:''} ${r.thesis||''}`)}else setMsg(r?.message||'Install failed.')};
+  const genAI=async()=>{setLoading(true);setMsg('');const r:any=await api.labGenerate({});setLoading(false);if(r?.ok){setMsg(`🤖 ${r.message}`);run()}else setMsg(r?.message||'AI generation failed. Configure it in Settings → AI Strategy Generator.')};
   const rec=res?.recommendation; const base=res?.baseline||{};
   const rows=[{name:res?.baseline?.name||'Your current config',...base,_base:true},...(res?.candidates||[])];
   return <div className="analytics-layout"><div className="analytics-grid">
@@ -81,6 +82,7 @@ function StrategyLabTab(){
       <p className="tiny muted">The agent back- and forward-tests a library of candidate trading STYLES against your own MT5 history and head-to-head with your live config. It only recommends an upgrade that genuinely beats your current setup out-of-sample — and nothing is applied until you click Install. Connect MT5 for a real verdict (otherwise it runs on synthetic data).</p>
       <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',marginTop:10}}>
         <button className="gold-button" onClick={run} disabled={loading} style={{height:38}}>{loading?'Testing all candidates…':'🧠 Run Strategy Lab'}</button>
+        <button className="outline-button" onClick={genAI} disabled={loading} style={{height:38}} title="Ask your configured Claude/ChatGPT to propose new candidate styles (Settings → AI Strategy Generator)">🤖 Generate with AI</button>
         {installed&&<span className="tiny muted">Installed: <strong>{installed.name}</strong></span>}
       </div>
       {res?.span&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles</p>}

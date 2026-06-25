@@ -24,6 +24,7 @@ load_dotenv()
 from services.backtesting import MonteCarloTester, TradeReplayEngine, WalkForwardBacktester
 from services.backtest_engine import CostAwareBacktester
 from services.strategy_lab import StrategyLab
+from services import ai_strategy_gen
 from services.decision_engine import GoldDecisionEngine
 from services.live_execution import BrokerSpecificLotSizer, ExposureValidator, LiveExecutionManager
 from services.live_market_feeds import EconomicCalendarAPI, MacroFeed, TickDataBacktester
@@ -263,6 +264,8 @@ def _default_settings() -> dict[str, Any]:
                       "us10yUrl": os.getenv("US10Y_FEED_URL", "") or os.getenv("GODMODE_US10Y_URL", ""),
                       "economicCalendarUrl": os.getenv("ECONOMIC_CALENDAR_URL", "") or os.getenv("GODMODE_ECONOMIC_CALENDAR_URL", ""),
                       "dxyKey": "", "us10yKey": "", "economicCalendarKey": ""},
+        "aiProvider": {"enabled": False, "provider": "claude", "apiKey": "",
+                       "model": "", "candidatesPerRun": 3},
         "security": {"requireApiKey": bool(api_key), "maskAccountBalance": False, "autoLogoutMinutes": 30},
         "meta": {"lastSaved": None, "source": "persistent_json"},
     }
@@ -2850,6 +2853,35 @@ def lab_add_candidates(payload: dict[str, Any] = Body(default={})):
     items = payload.get("candidates") or payload.get("items") or []
     n = strategy_lab.add_candidates(items if isinstance(items, list) else [])
     return {"ok": True, "added": n, "total": len(strategy_lab.candidates())}
+
+
+@app.post("/api/lab/generate")
+def lab_generate(payload: dict[str, Any] = Body(default={})):
+    """Ask the configured LLM (Claude or ChatGPT) to PROPOSE new candidate style profiles, validate
+    + clamp them to the safe schema, and add them to the Strategy Lab pool (they then get backtested
+    like any other candidate — nothing trades until you run the lab and click Install)."""
+    cfg = SETTINGS_STATE.get("aiProvider", {}) if isinstance(SETTINGS_STATE.get("aiProvider"), dict) else {}
+    if not cfg.get("enabled"):
+        return {"ok": False, "message": "AI Strategy Generator is OFF. Enable it and add an API key in Settings → AI Strategy Generator."}
+    provider = str(payload.get("provider") or cfg.get("provider", "claude"))
+    api_key = str(cfg.get("apiKey", "") or "")
+    model = str(payload.get("model") or cfg.get("model", "") or "")
+    n = int(payload.get("n") or cfg.get("candidatesPerRun", 3) or 3)
+    try:
+        kpis = (_live_analytics().get("kpis", {}) if mt5_bridge.status().get("connected") else {})
+    except Exception:
+        kpis = {}
+    context = {"baseline": decision_engine.strictness_dict(),
+               "performance": {k: kpis.get(k) for k in ("winRate", "profitFactor", "expectancy", "totalTrades", "maxDrawdown") if k in kpis}}
+    res = ai_strategy_gen.generate_candidates(provider, api_key, model, context, n=n)
+    if not res.get("ok"):
+        return res
+    added = strategy_lab.add_candidates(res["candidates"])
+    res["added"] = added
+    res["total"] = len(strategy_lab.candidates())
+    res["message"] = f"{provider.upper()} proposed {res.get('acceptedCount', 0)} safe candidate(s); {added} added. Run the lab to test them on your data."
+    _push_notification("AI generated strategies", res["message"], "info")
+    return res
 
 
 @app.post("/api/lab/install")
