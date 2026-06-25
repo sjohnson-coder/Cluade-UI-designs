@@ -26,8 +26,15 @@ def available() -> bool:
 
 def render_trade_chart(candles: list[dict[str, Any]], *, side: str, entry: float | None = None,
                        sl: float | None = None, tps: list[float] | None = None,
-                       title: str = "XAUUSD", subtitle: str = "") -> bytes | None:
-    """Candlestick + EMA20/50 + entry/SL/TP lines → PNG bytes (or None if unavailable)."""
+                       title: str = "XAUUSD", subtitle: str = "",
+                       timeframe: str = "", live: bool = True) -> bytes | None:
+    """Candlestick + EMA20/50 + entry/SL/TP lines → PNG bytes (or None if unavailable).
+
+    ``timeframe`` is stamped in the title and a real time axis is drawn from the candle
+    timestamps, so the image can be cross-checked against your platform on the SAME timeframe
+    (the bot trades M15 — an M5 platform view will look different). ``live=False`` watermarks
+    the image as DEMO data so a synthetic/disconnected feed is never mistaken for your broker's.
+    """
     if not _HAVE_MPL or not candles:
         return None
     try:
@@ -59,13 +66,25 @@ def render_trade_chart(candles: list[dict[str, Any]], *, side: str, entry: float
         for idx, tp in enumerate(tps or []):
             hline(tp, "#16c784", f"TP{idx + 1}")
 
-        ax.set_title(f"{title}   {side}", color="#e6e6e6", fontsize=11, loc="left")
+        tf = f" · {timeframe}" if timeframe else ""
+        ax.set_title(f"{title}{tf}   {side}", color="#e6e6e6", fontsize=11, loc="left")
         if subtitle:
             ax.text(0.0, 1.02, subtitle, transform=ax.transAxes, color="#9aa4b2", fontsize=8, ha="left")
+        # DEMO watermark so a synthetic/disconnected feed is never mistaken for the live broker feed.
+        if not live:
+            ax.text(0.5, 0.5, "DEMO DATA", transform=ax.transAxes, color="#3a4150",
+                    fontsize=30, ha="center", va="center", rotation=18, alpha=0.45, zorder=1)
         ax.tick_params(colors="#9aa4b2", labelsize=7)
         for spine in ax.spines.values():
             spine.set_color("#2a2f3a")
         ax.grid(color="#1c212b", linewidth=0.5)
+        # Real time axis from candle timestamps → cross-check against your platform.
+        labels = [str(c.get("timeLabel", "")) for c in view]
+        if any(labels):
+            step = max(1, n // 7)
+            ticks = list(range(0, n, step))
+            ax.set_xticks(ticks)
+            ax.set_xticklabels([labels[i] for i in ticks], fontsize=6, color="#9aa4b2")
         ax.set_xlim(-1, n + 6)
         ax.legend(loc="upper left", fontsize=7, facecolor="#0e1116", edgecolor="#2a2f3a", labelcolor="#cbd5e1")
         buf = io.BytesIO()

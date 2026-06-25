@@ -12,8 +12,11 @@ def get_json(url: str, headers: dict[str,str] | None=None): return json.loads(ge
 
 class EconomicCalendarAPI:
     def __init__(self):
-        self.url=os.getenv('GODMODE_ECONOMIC_CALENDAR_URL','').strip(); self.key=os.getenv('GODMODE_ECONOMIC_CALENDAR_KEY','').strip()
+        self.key=(os.getenv('GODMODE_ECONOMIC_CALENDAR_KEY','').strip() or os.getenv('ECONOMIC_CALENDAR_KEY','').strip())
         self.before=int(os.getenv('GODMODE_NEWS_BLACKOUT_BEFORE_MINUTES','30')); self.after=int(os.getenv('GODMODE_NEWS_BLACKOUT_AFTER_MINUTES','30'))
+    @property
+    def url(self):
+        return (os.getenv('GODMODE_ECONOMIC_CALENDAR_URL','').strip() or os.getenv('ECONOMIC_CALENDAR_URL','').strip())
     def events(self):
         if self.url:
             try:
@@ -51,23 +54,37 @@ class EconomicCalendarAPI:
         return {'blackoutActive':bool(active),'activeEvents':active,'nextHighImpactUsdEvent':nxt,'beforeMinutes':self.before,'afterMinutes':self.after,'decision':'BLOCK_NEW_TRADES' if active else 'CLEAR'}
 
 class MacroFeed:
-    def __init__(self):
-        self.dxy_url=os.getenv('GODMODE_DXY_URL','').strip(); self.us10y_url=os.getenv('GODMODE_US10Y_URL','').strip(); self.dxy_key=os.getenv('GODMODE_DXY_KEY','').strip(); self.us10y_key=os.getenv('GODMODE_US10Y_KEY','').strip()
+    NEUTRAL_BAND = 0.05  # |changePct| within this band = noise, no directional read
     def snapshot(self):
-        dxy=self._one('DXY', self.dxy_url, self.dxy_key, 104.21, -0.18); us10y=self._one('US10Y', self.us10y_url, self.us10y_key, 4.28, -0.04)
-        score=50; reasons=[]
-        if dxy['changePct']<0: score+=18; reasons.append('DXY softening supports gold upside')
-        else: score-=14; reasons.append('DXY strengthening pressures gold')
-        if us10y['changePct']<0: score+=16; reasons.append('US10Y yield softening supports gold')
-        else: score-=12; reasons.append('US10Y yield rising pressures gold')
-        return {'dxy':dxy,'us10y':us10y,'goldBias':'BULLISH_GOLD' if score>=62 else 'BEARISH_GOLD' if score<=42 else 'NEUTRAL_GOLD','goldBiasScore':max(0,min(100,score)),'reasons':reasons,'timestampUtc':utcnow().isoformat()}
-    def _one(self, name,url,key,fv,fc):
-        if not url: return {'symbol':name,'value':fv,'changePct':fc,'source':'local_fallback_no_api_configured','status':'fallback'}
+        # Read env FRESH each call so feed URLs set from the Settings UI take effect at
+        # runtime. Accept both the GODMODE_* and *_FEED_URL naming conventions.
+        dxy_url=(os.getenv('GODMODE_DXY_URL','').strip() or os.getenv('DXY_FEED_URL','').strip())
+        us10y_url=(os.getenv('GODMODE_US10Y_URL','').strip() or os.getenv('US10Y_FEED_URL','').strip())
+        dxy_key=(os.getenv('GODMODE_DXY_KEY','').strip() or os.getenv('DXY_FEED_KEY','').strip())
+        us10y_key=(os.getenv('GODMODE_US10Y_KEY','').strip() or os.getenv('US10Y_FEED_KEY','').strip())
+        dxy=self._one('DXY', dxy_url, dxy_key, 104.21); us10y=self._one('US10Y', us10y_url, us10y_key, 4.28)
+        # A fallback (unconfigured) feed contributes NO tilt — the bias stays NEUTRAL instead of
+        # the old hardcoded bullish stub. Only a LIVE feed moving beyond the neutral band tilts.
+        score=50; reasons=[]; live=[]
+        for feed,sup,pres,wt in ((dxy,'DXY softening supports gold upside','DXY strengthening pressures gold',(18,14)),
+                                 (us10y,'US10Y yield softening supports gold','US10Y yield rising pressures gold',(16,12))):
+            if feed['status']!='live':
+                continue
+            live.append(feed['symbol']); chg=feed['changePct']
+            if chg < -self.NEUTRAL_BAND: score+=wt[0]; reasons.append(sup)
+            elif chg > self.NEUTRAL_BAND: score-=wt[1]; reasons.append(pres)
+            else: reasons.append(f"{feed['symbol']} flat — no macro tilt")
+        if not live:
+            reasons=['No live macro feed configured — NEUTRAL (no tilt). Set DXY/US10Y feed URLs in Settings → Data Feeds for live context.']
+        score=max(0,min(100,score))
+        return {'dxy':dxy,'us10y':us10y,'goldBias':'BULLISH_GOLD' if score>=62 else 'BEARISH_GOLD' if score<=42 else 'NEUTRAL_GOLD','goldBiasScore':score,'reasons':reasons,'feedStatus':'live' if live else 'not_configured','liveFeeds':live,'timestampUtc':utcnow().isoformat()}
+    def _one(self, name,url,key,fv):
+        if not url: return {'symbol':name,'value':fv,'changePct':0.0,'source':'local_fallback_no_api_configured','status':'fallback'}
         try:
             headers={'User-Agent':'GodModeGoldBot/1.0'}
             if key: headers['Authorization']=f'Bearer {key}'; url += ('&' if '?' in url else '?')+'apikey='+urllib.parse.quote(key)
             text=get_text(url,headers); val,chg=self._parse(text); return {'symbol':name,'value':val,'changePct':chg,'source':'live_api','status':'live'}
-        except Exception as exc: return {'symbol':name,'value':fv,'changePct':fc,'source':f'fallback_after_api_error:{exc}','status':'fallback'}
+        except Exception as exc: return {'symbol':name,'value':fv,'changePct':0.0,'source':f'fallback_after_api_error:{exc}','status':'fallback'}
     def _parse(self,text):
         try:
             raw=json.loads(text); node=raw[0] if isinstance(raw,list) and raw else raw

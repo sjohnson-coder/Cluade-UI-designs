@@ -256,6 +256,8 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
             "recentBearBars": 3,
             "structureBullish": None,
             "atrDistance50": 1.0,
+            "atrDistance20": 0.5,
+            "trendAligned": False,
             "confluenceCount": 0,
             "computedSide": "WAIT",
             "rsi14": 50.0,
@@ -291,6 +293,7 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
     atr = sum(trs[-14:]) / 14 if len(trs) >= 14 else max(1.0, (max(highs[-10:]) - min(lows[-10:])) / 10)
 
     atr_dist_50 = abs(price - ema50) / max(atr, 0.01)
+    atr_dist_20 = abs(price - ema20) / max(atr, 0.01)   # distance from the pullback anchor
 
     # Direction from EMA stack
     bull_aligned = price > ema20 > ema50
@@ -338,12 +341,6 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
             h1_aligned = lp < e20 < e50
     else:
         h1_aligned = htf_aligned  # fallback
-
-    # Late-entry score. Over-extended threshold raised 2.0 -> 2.8 ATR so the bot
-    # can still enter strong trending Gold moves that never deep-pull-back into
-    # OTE (previously these were rejected as "late", missing the whole move).
-    late_score = min(1.0, atr_dist_50 / 3.0)
-    over_extended = atr_dist_50 > 3.0  # display flag; the gate grades soft vs hard in evaluate()
 
     # Liquidity sweep detection
     recent5 = candles[-5:]
@@ -418,6 +415,31 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
     struct_bull = hh and hl
     struct_bear = lh and ll
 
+    # ── Trend-aware late-entry / over-extension ──────────────────────────────────────────
+    # THE FIX for "only sells, never buys": in a STRONG, efficient, EMA-aligned trend, being
+    # far from the LAGGING ema50 is normal and healthy — punishing it (timing score) and
+    # demanding a deep pullback is exactly what made the bot fade every rally and take only
+    # counter-trend shorts. So when riding an efficient aligned trend we (a) measure
+    # "lateness" from ema20 (the pullback anchor, which a trend hugs) rather than ema50, and
+    # (b) widen the over-extension flag. A genuine CHASE = far from ema20 with no pullback in
+    # a CHOPPY tape — that stays penalised. Chop protection is untouched (gated on efficiency).
+    # Robust trend proxy: slope of the slow EMA-50 over ~10 bars (in ATR units). Unlike the
+    # 20-bar efficiency ratio — which a pullback entry necessarily depresses — the slow-EMA
+    # slope stays positive through a shallow retrace, so we can recognise a trend-continuation
+    # entry even as price pulls back into EMA20. Real chop (flat EMA-50) → slope ≈ 0 → not a
+    # trend; and the independent ER<min chop HARD-block still vetoes genuinely ranging tape.
+    ema50_ref = ema50s[-11] if len(ema50s) >= 11 and ema50s[-11] > 0 else (ema50s[0] if ema50s else ema50)
+    ema50_slope10 = (ema50 - ema50_ref) / max(atr, 0.01)
+    aligned_trend = ((computed_side == "BUY" and price > ema50 and ema50_slope10 > 0.35) or
+                     (computed_side == "SELL" and price < ema50 and ema50_slope10 < -0.35))
+    if aligned_trend:
+        late_ref = atr_dist_20 if pullback else min(atr_dist_50, atr_dist_20 + 1.0)
+        late_score = min(1.0, late_ref / 5.0)      # gentle, ema20-anchored (maxes at a ~5-ATR blow-off)
+        over_extended = atr_dist_20 > 4.0          # only a true ema20 blow-off is a chase
+    else:
+        late_score = min(1.0, atr_dist_50 / 3.0)
+        over_extended = atr_dist_50 > 3.0
+
     # RSI
     rsi = _compute_rsi(closes, 14)
     rsi_overbought = rsi > 70
@@ -483,6 +505,8 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
         "recentBearBars": bear_bars,
         "structureBullish": struct_bull,
         "atrDistance50": round(atr_dist_50, 3),
+        "atrDistance20": round(atr_dist_20, 3),
+        "trendAligned": aligned_trend,
         "confluenceCount": confluence_count,
         "atr": round(atr, 3),
         "computedSide": computed_side,
@@ -710,13 +734,20 @@ class GoldDecisionEngine:
             hard_blocks.append("Market cleanliness: " + "; ".join(cleanliness.get("dirtyReasons", [])))
         if rr < self.min_rr:
             hard_blocks.append(f"R/R too low: {rr:.2f} (min {self.min_rr:.2f})")
-        # Over-extension: graded. A genuine chase (> hard) is blocked; a mild stretch
-        # (> soft) is only a scout flag — not a veto.
-        atr_dist = features["atrDistance50"]
-        if atr_dist > self.max_atr_extension_hard:
-            hard_blocks.append(f"Price extremely over-extended: {atr_dist:.2f} ATR from EMA-50 (>{self.max_atr_extension_hard}) — never chase")
-        elif atr_dist > self.max_atr_extension_soft:
-            soft_blocks.append(f"Mildly extended: {atr_dist:.2f} ATR from EMA-50 — scout size, wait for a small pullback")
+        # Over-extension: graded AND trend-aware. A genuine chase (> hard) is blocked; a mild
+        # stretch (> soft) is only a scout flag. When riding a strong EMA-aligned efficient
+        # trend we anchor to ema20 (the trend hugs it) and widen the thresholds, so we ride
+        # trend continuation instead of fading it — the fix for taking only counter-trend sells.
+        if features.get("trendAligned"):
+            atr_dist = features.get("atrDistance20", features["atrDistance50"])
+            hard_thr, soft_thr, anchor = self.max_atr_extension_hard + 1.8, self.max_atr_extension_soft + 1.8, "EMA-20"
+        else:
+            atr_dist = features["atrDistance50"]
+            hard_thr, soft_thr, anchor = self.max_atr_extension_hard, self.max_atr_extension_soft, "EMA-50"
+        if atr_dist > hard_thr:
+            hard_blocks.append(f"Price extremely over-extended: {atr_dist:.2f} ATR from {anchor} (>{hard_thr:.1f}) — never chase")
+        elif atr_dist > soft_thr:
+            soft_blocks.append(f"Mildly extended: {atr_dist:.2f} ATR from {anchor} — scout size, wait for a small pullback")
         # Choppy/range filter — the biggest cause of repeated fast-fails. A tight,
         # back-and-forth range has low efficiency; do not trade it.
         er = float(features.get("efficiencyRatio", 0.5))
@@ -745,16 +776,19 @@ class GoldDecisionEngine:
         # RSI: only a HARD veto when truly extreme AND fighting the higher-timeframe
         # bias (buying a blow-off top / selling a capitulation low). Otherwise a soft
         # flag — RSI can ride >70/<30 for a long time in a real trend.
+        # RSI rides >70/<30 for a long time in a real trend, so a trend-aligned elevated RSI is
+        # only a soft "manage tightly" flag — hard-block ONLY a genuine parabolic blow-off (>88),
+        # an extreme (>80) reading that is NOT a confirmed trend, or one fighting the HTF bias.
         if features["rsiOverbought"] and side == "BUY":
-            if features["rsi14"] > 80 or not features.get("htfBiasAligned"):
+            if features["rsi14"] > 88 or not features.get("htfBiasAligned") or (features["rsi14"] > 80 and not features.get("trendAligned")):
                 hard_blocks.append(f"RSI {features['rsi14']:.0f} overbought against bias — do not buy the top")
             else:
-                soft_blocks.append(f"RSI {features['rsi14']:.0f} elevated but H4/D1 bias supports — manage tightly")
+                soft_blocks.append(f"RSI {features['rsi14']:.0f} elevated but trend/HTF bias supports — manage tightly")
         if features["rsiOversold"] and side == "SELL":
-            if features["rsi14"] < 20 or not features.get("htfBiasAligned"):
+            if features["rsi14"] < 12 or not features.get("htfBiasAligned") or (features["rsi14"] < 20 and not features.get("trendAligned")):
                 hard_blocks.append(f"RSI {features['rsi14']:.0f} oversold against bias — do not sell the bottom")
             else:
-                soft_blocks.append(f"RSI {features['rsi14']:.0f} depressed but H4/D1 bias supports — manage tightly")
+                soft_blocks.append(f"RSI {features['rsi14']:.0f} depressed but trend/HTF bias supports — manage tightly")
         if confidence < self.min_take_score:
             hard_blocks.append(f"Confidence {confidence}% below minimum threshold {self.min_take_score}%")
         elif confidence < self.min_standard_score:
@@ -863,8 +897,10 @@ class GoldDecisionEngine:
             return "Extreme Volatility / Reduce Size"
         if "high volat" in vol_regime:
             return "Volatility Expansion"
-        if features.get("htfAligned") and features.get("momentumExpanding"):
-            if features.get("structureBullish"):
+        if features.get("htfAligned") and (features.get("momentumExpanding") or features.get("trendAligned")):
+            # Use the EMA side to label direction — a clean efficient trend may not print
+            # textbook higher-highs/lows yet still be a strong directional move.
+            if features.get("structureBullish") or features.get("computedSide") == "BUY":
                 return "Strong Bullish Trend"
             return "Strong Bearish Trend"
         if features.get("asianRange", {}).get("defined") and "london" in session:
@@ -1034,7 +1070,9 @@ class GoldDecisionEngine:
         sweep_score  = 92 if features["liquiditySwept"] else 50
         timing_score = max(20, 95 - features["lateEntryScore"] * 80)
         ote_score    = 88 if features["inOTE"] else 58
-        pullbk_score = 88 if features["pullbackPresent"] else 45
+        # A strong trend that won't deep-pull-back still deserves credit (don't force the bot
+        # to miss the whole move waiting for a retrace that never comes).
+        pullbk_score = 88 if features["pullbackPresent"] else (74 if features.get("trendAligned") else 45)
         spread_score = 96 if spread <= self.max_spread else 28
         session_s    = min(96, session_score)
         momentum_s   = features["momentumScore"]

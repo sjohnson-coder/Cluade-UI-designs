@@ -200,6 +200,10 @@ def _default_settings() -> dict[str, Any]:
         "notifications": {"tradeExecutions": True, "strategyAlerts": True, "riskAlerts": True, "dailySummary": True, "systemUpdates": True, "promotionsTips": False, "soundPreset": "chime", "soundEnabled": True},
         "telegram": {"enabled": False, "botToken": "", "chatId": "", "sendCharts": True, "sendWaitForecast": False, "waitForecastMinutes": 30.0, "dailyRecap": True, "weeklyRecap": True, "recapHourUtc": 21},
         "mobile": {"lanAccessEnabled": False, "bindHost": "127.0.0.1", "port": 8000},
+        "dataFeeds": {"dxyUrl": os.getenv("DXY_FEED_URL", "") or os.getenv("GODMODE_DXY_URL", ""),
+                      "us10yUrl": os.getenv("US10Y_FEED_URL", "") or os.getenv("GODMODE_US10Y_URL", ""),
+                      "economicCalendarUrl": os.getenv("ECONOMIC_CALENDAR_URL", "") or os.getenv("GODMODE_ECONOMIC_CALENDAR_URL", ""),
+                      "dxyKey": "", "us10yKey": "", "economicCalendarKey": ""},
         "security": {"requireApiKey": bool(api_key), "maskAccountBalance": False, "autoLogoutMinutes": 30},
         "meta": {"lastSaved": None, "source": "persistent_json"},
     }
@@ -233,6 +237,41 @@ def _save_settings() -> None:
     SETTINGS_FILE.write_text(json.dumps(SETTINGS_STATE, indent=2, default=str), encoding="utf-8")
 
 SETTINGS_STATE = _load_settings()
+
+
+def _apply_data_feed_env() -> dict[str, Any]:
+    """Push the Settings → Data Feeds URLs/keys into os.environ under BOTH naming conventions
+    (``*_FEED_URL`` for the decision engine and ``GODMODE_*_URL`` for the display feeds) so a
+    single config drives everything, then clear the feed caches so it takes effect immediately."""
+    df = SETTINGS_STATE.get("dataFeeds", {}) if isinstance(SETTINGS_STATE.get("dataFeeds"), dict) else {}
+    mapping = {
+        "dxyUrl": ("DXY_FEED_URL", "GODMODE_DXY_URL"),
+        "us10yUrl": ("US10Y_FEED_URL", "GODMODE_US10Y_URL"),
+        "economicCalendarUrl": ("ECONOMIC_CALENDAR_URL", "GODMODE_ECONOMIC_CALENDAR_URL"),
+        "dxyKey": ("DXY_FEED_KEY", "GODMODE_DXY_KEY"),
+        "us10yKey": ("US10Y_FEED_KEY", "GODMODE_US10Y_KEY"),
+        "economicCalendarKey": ("ECONOMIC_CALENDAR_KEY", "GODMODE_ECONOMIC_CALENDAR_KEY"),
+    }
+    for skey, envs in mapping.items():
+        val = str(df.get(skey, "") or "").strip()
+        for env in envs:
+            if val:
+                os.environ[env] = val
+            else:
+                os.environ.pop(env, None)
+    for obj in (calendar, macro, getattr(decision_engine, "calendar", None), getattr(decision_engine, "macro", None)):
+        try:
+            if obj is not None and hasattr(obj, "force_refresh"):
+                obj.force_refresh()
+        except Exception:
+            pass
+    return {"dxyConfigured": bool(str(df.get("dxyUrl", "")).strip()),
+            "us10yConfigured": bool(str(df.get("us10yUrl", "")).strip()),
+            "calendarConfigured": bool(str(df.get("economicCalendarUrl", "")).strip())}
+
+
+_apply_data_feed_env()  # sync env <- persisted Data Feeds settings at startup
+
 AUTO_TRADE_STATE: dict[str, Any] = {"enabled": False, "lastFire": 0.0, "lastResult": None, "cooldownSeconds": 15,
                                     "lossStreak": 0, "winStreak": 0, "postLossUntil": 0.0, "pausedUntil": 0.0, "lastLoser": None}
 AUTO_TRADE_HEARTBEAT: list[dict[str, Any]] = []
@@ -558,10 +597,15 @@ def _trade_chart_image(side: str, entry: Any, sl: Any, tps: list[Any], subtitle:
         market = _live_market()
         candles = market.get("candles") or []
         clean_tps = [float(t) for t in (tps or []) if t]
+        tf = str(market.get("timeframe", "M15"))
+        live = bool(market.get("connected")) and str(market.get("source", "mt5")).startswith("mt5")
+        last_t = str(candles[-1].get("timeLabel", "")) if candles else ""
+        sub = ((subtitle + " · ") if subtitle else "") + f"{tf} • last bar {last_t} UTC" \
+              + ("" if live else " • DEMO data — not your broker feed")
         return chart_render.render_trade_chart(
             candles, side=str(side), entry=float(entry) if entry else None,
             sl=float(sl) if sl else None, tps=clean_tps,
-            title=str(market.get("symbol", "XAUUSD")), subtitle=subtitle,
+            title=str(market.get("symbol", "XAUUSD")), subtitle=sub, timeframe=tf, live=live,
         )
     except Exception:
         return None
@@ -592,6 +636,8 @@ def _telegram_rich_trade_alert(headline: str, side: str, symbol: str, volume: An
         lines.append(f"Strategy: _{strategy}_")
     if reason:
         lines.append(f"\n📋 {str(reason)[:380]}")
+    _ctf = str((SETTINGS_STATE.get("trading", {}) or {}).get("timeframe", "M15"))
+    lines.append(f"\n📊 _Chart is {_ctf} (the timeframe the bot trades) with a UTC time axis — set your platform to {_ctf} to match the candles._")
     text = "\n".join(lines)
     img = _trade_chart_image(side, entry, sl, clean_tps, subtitle=f"{strategy} · conf {int(float(confidence or 0))}%")
     if img:
@@ -2345,6 +2391,8 @@ def update_settings(payload: dict[str, Any] = Body(...)):
     SETTINGS_STATE.setdefault("meta", {})["lastSaved"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     if isinstance(payload.get("pyramiding"), dict):
         pyramiding_engine.update_settings(payload["pyramiding"])
+    if isinstance(payload.get("dataFeeds"), dict):
+        _apply_data_feed_env()   # live macro/news feed URLs take effect immediately
     _apply_runtime_settings()
     _save_settings()
     SETTINGS_STATE["mt5"] = mt5_bridge.status()
@@ -2663,6 +2711,31 @@ def live_us10y_feed():
 @app.get("/api/macro/live-gold-context")
 def live_macro_gold_context():
     return macro_feed.snapshot()
+
+
+@app.get("/api/feeds/status")
+def feeds_status():
+    """Live/stub status for each data feed — drives the Settings → Data Feeds badges so you
+    can SEE whether macro & news are actually live or running neutral/unconfigured."""
+    df = SETTINGS_STATE.get("dataFeeds", {}) if isinstance(SETTINGS_STATE.get("dataFeeds"), dict) else {}
+    try:
+        macro_snap = macro.snapshot()
+    except Exception:
+        macro_snap = {"status": "error", "macroGoldBias": "neutral"}
+    try:
+        cal = calendar.blackout_status()
+    except Exception:
+        cal = {"status": "error", "isBlackout": False}
+    return {
+        "ok": True,
+        "dxy": {"configured": bool(str(df.get("dxyUrl", "")).strip())},
+        "us10y": {"configured": bool(str(df.get("us10yUrl", "")).strip())},
+        "macro": {"status": macro_snap.get("status", "not_configured"), "goldBias": macro_snap.get("macroGoldBias"),
+                  "liveFeeds": macro_snap.get("liveFeeds", False), "detail": macro_snap.get("detail")},
+        "economicCalendar": {"status": cal.get("status", "not_configured"), "configured": bool(str(df.get("economicCalendarUrl", "")).strip()),
+                             "isBlackout": cal.get("isBlackout", False), "upcoming": len(cal.get("upcomingEvents", []))},
+        "note": "Unconfigured feeds run NEUTRAL (no tilt) and do not block trades. Macro affects the decision; the live-* display endpoints are informational.",
+    }
 
 
 @app.post("/api/backtest/tick-data")

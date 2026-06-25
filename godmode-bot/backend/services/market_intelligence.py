@@ -20,18 +20,36 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _env_url(*names: str) -> str:
+    """First non-empty env var among ``names`` (read FRESH each call, so feed URLs set
+    from the Settings UI at runtime take effect without a restart). Accepts both the
+    ``*_FEED_URL`` and ``GODMODE_*_URL`` naming conventions used across the codebase."""
+    for n in names:
+        v = os.getenv(n, "").strip()
+        if v:
+            return v
+    return ""
+
+
 class EconomicCalendar:
     """Economic calendar with live-URL hook.
 
-    Set ECONOMIC_CALENDAR_URL in .env to point at a ForexFactory-compatible
+    Set ECONOMIC_CALENDAR_URL (or GODMODE_ECONOMIC_CALENDAR_URL) to a ForexFactory-compatible
     JSON endpoint. Without it the calendar stays empty (no fake blackouts).
     """
 
     def __init__(self) -> None:
-        self.url = os.getenv("ECONOMIC_CALENDAR_URL", "").strip()
         self._cache: list[dict[str, Any]] = []
         self._cache_at: datetime | None = None
         self._cache_ttl_seconds = 300  # 5 min
+
+    @property
+    def url(self) -> str:
+        return _env_url("ECONOMIC_CALENDAR_URL", "GODMODE_ECONOMIC_CALENDAR_URL")
+
+    def force_refresh(self) -> None:
+        self._cache = []
+        self._cache_at = None
 
     def _fetch_live(self) -> list[dict[str, Any]]:
         if not self.url:
@@ -79,7 +97,9 @@ class EconomicCalendar:
                 active.append(event)
             elif now < t:
                 upcoming.append(event)
-        return {"isBlackout": bool(active), "activeEvents": active, "upcomingEvents": upcoming[:5]}
+        return {"isBlackout": bool(active), "activeEvents": active, "upcomingEvents": upcoming[:5],
+                "liveConfigured": bool(self.url),
+                "status": "live" if self.url else "not_configured"}
 
 
 class MacroAwareness:
@@ -92,11 +112,21 @@ class MacroAwareness:
     """
 
     def __init__(self) -> None:
-        self.dxy_url = os.getenv("DXY_FEED_URL", "").strip()
-        self.us10y_url = os.getenv("US10Y_FEED_URL", "").strip()
         self._cache: dict[str, Any] | None = None
         self._cache_at: datetime | None = None
         self._ttl = 600  # 10 min
+
+    @property
+    def dxy_url(self) -> str:
+        return _env_url("DXY_FEED_URL", "GODMODE_DXY_URL")
+
+    @property
+    def us10y_url(self) -> str:
+        return _env_url("US10Y_FEED_URL", "GODMODE_US10Y_URL")
+
+    def force_refresh(self) -> None:
+        self._cache = None
+        self._cache_at = None
 
     def _fetch(self, url: str) -> dict[str, Any] | None:
         if not url:
@@ -153,6 +183,7 @@ class MacroAwareness:
             "macroGoldBias": macro_bias,
             "detail": detail,
             "liveFeeds": bool(dxy_data or us10y_data),
+            "status": "live" if (dxy_data or us10y_data) else "not_configured",
         }
         self._cache_at = now
         return self._cache
