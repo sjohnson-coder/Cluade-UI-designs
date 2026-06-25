@@ -594,18 +594,27 @@ def _trade_chart_image(side: str, entry: Any, sl: Any, tps: list[Any], subtitle:
     if not chart_render.available():
         return None
     try:
-        market = _live_market()
-        candles = market.get("candles") or []
+        trading = SETTINGS_STATE.get("trading", {}) if isinstance(SETTINGS_STATE.get("trading"), dict) else {}
+        symbol = str(trading.get("symbol", mt5_bridge.symbol))
+        tf = str(trading.get("timeframe", "M15"))
+        # Use the RAW MT5 snapshot — never the demo/synthetic fallback. A live alert must show
+        # the user's REAL broker candles or no chart at all; a synthetic chart is exactly what
+        # "the candles don't match" was. If MT5 isn't connected we skip the image (text still sends).
+        snap = mt5_bridge.market_snapshot(symbol, tf)
+        candles = snap.get("candles") or []
+        if not snap.get("connected") or not candles:
+            return None
         clean_tps = [float(t) for t in (tps or []) if t]
-        tf = str(market.get("timeframe", "M15"))
-        live = bool(market.get("connected")) and str(market.get("source", "mt5")).startswith("mt5")
-        last_t = str(candles[-1].get("timeLabel", "")) if candles else ""
-        sub = ((subtitle + " · ") if subtitle else "") + f"{tf} • last bar {last_t} UTC" \
-              + ("" if live else " • DEMO data — not your broker feed")
+        last = candles[-1]
+        try:
+            ohlc = f"O{float(last['open']):.2f} H{float(last['high']):.2f} L{float(last['low']):.2f} C{float(last['close']):.2f}"
+        except Exception:
+            ohlc = ""
+        sub = ((subtitle + " · ") if subtitle else "") + f"{tf} • {ohlc} • {last.get('timeLabel','')} server time"
         return chart_render.render_trade_chart(
             candles, side=str(side), entry=float(entry) if entry else None,
             sl=float(sl) if sl else None, tps=clean_tps,
-            title=str(market.get("symbol", "XAUUSD")), subtitle=sub, timeframe=tf, live=live,
+            title=str(snap.get("symbol", symbol)), subtitle=sub, timeframe=tf, live=True,
         )
     except Exception:
         return None
@@ -637,7 +646,7 @@ def _telegram_rich_trade_alert(headline: str, side: str, symbol: str, volume: An
     if reason:
         lines.append(f"\n📋 {str(reason)[:380]}")
     _ctf = str((SETTINGS_STATE.get("trading", {}) or {}).get("timeframe", "M15"))
-    lines.append(f"\n📊 _Chart is {_ctf} (the timeframe the bot trades) with a UTC time axis — set your platform to {_ctf} to match the candles._")
+    lines.append(f"\n📊 _Chart = real MT5 {_ctf} candles, server-time axis (matches your platform). Set your chart to {_ctf}; the O/H/L/C printed on it should equal your last {_ctf} candle. No chart = MT5 not connected._")
     text = "\n".join(lines)
     img = _trade_chart_image(side, entry, sl, clean_tps, subtitle=f"{strategy} · conf {int(float(confidence or 0))}%")
     if img:

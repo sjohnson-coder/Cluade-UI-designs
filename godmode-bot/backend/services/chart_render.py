@@ -8,6 +8,7 @@ send — just as text-only when charts can't be drawn.
 from __future__ import annotations
 
 import io
+from datetime import datetime, timezone
 from typing import Any
 
 try:
@@ -78,13 +79,22 @@ def render_trade_chart(candles: list[dict[str, Any]], *, side: str, entry: float
         for spine in ax.spines.values():
             spine.set_color("#2a2f3a")
         ax.grid(color="#1c212b", linewidth=0.5)
-        # Real time axis from candle timestamps → cross-check against your platform.
-        labels = [str(c.get("timeLabel", "")) for c in view]
+        # Real date+time axis from candle timestamps (broker/server time, matching your
+        # platform) → cross-check bar-for-bar against your chart.
+        def _lbl(c: dict[str, Any]) -> str:
+            t = c.get("time")
+            if t:
+                try:
+                    return datetime.fromtimestamp(int(t), timezone.utc).strftime("%m/%d %H:%M")
+                except Exception:
+                    pass
+            return str(c.get("timeLabel", ""))
+        labels = [_lbl(c) for c in view]
         if any(labels):
-            step = max(1, n // 7)
+            step = max(1, n // 6)
             ticks = list(range(0, n, step))
             ax.set_xticks(ticks)
-            ax.set_xticklabels([labels[i] for i in ticks], fontsize=6, color="#9aa4b2")
+            ax.set_xticklabels([labels[i] for i in ticks], fontsize=6, color="#9aa4b2", rotation=12)
         ax.set_xlim(-1, n + 6)
         ax.legend(loc="upper left", fontsize=7, facecolor="#0e1116", edgecolor="#2a2f3a", labelcolor="#cbd5e1")
         buf = io.BytesIO()
