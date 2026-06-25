@@ -17,6 +17,7 @@ backend/data/decision_journal.jsonl
 backend/data/factor_weights.json
 backend/data/trade_context.json
 backend/data/risk_overrides.json
+backend/data/protection_state.json
 backend/data/replays/*
 backend/data/reports/*
 backend/data/versions/*

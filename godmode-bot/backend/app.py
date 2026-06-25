@@ -573,6 +573,13 @@ def _register_close_outcome(ticket: Any, pnl: float, side: Any, price: Any, sess
                         outcome="WIN" if pnl > 0 else "LOSS" if pnl < 0 else "FLAT")
     except Exception:
         pass
+    # Daily realized P&L (drives the daily-loss circuit breaker), reset per UTC day.
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    if AUTO_TRADE_STATE.get("dayKey") != day:
+        AUTO_TRADE_STATE["dayKey"] = day
+        AUTO_TRADE_STATE["dailyRealizedPnl"] = 0.0
+        AUTO_TRADE_STATE["dailyHaltAlerted"] = False
+    AUTO_TRADE_STATE["dailyRealizedPnl"] = round(float(AUTO_TRADE_STATE.get("dailyRealizedPnl", 0.0)) + pnl, 2)
     if pnl < 0:
         streak = int(AUTO_TRADE_STATE.get("lossStreak", 0)) + 1
         AUTO_TRADE_STATE["lossStreak"] = streak
@@ -823,6 +830,73 @@ async def _auto_trading_loop() -> None:
 
 # Per-ticket protection state so we only act/alert once per transition.
 POSITION_PROTECTION_STATE: dict[str, dict[str, Any]] = {}
+PROTECTION_STATE_FILE = DATA_DIR / "protection_state.json"
+
+
+def _save_protection_state() -> None:
+    """Persist the per-trade protection state + safety counters so a restart resumes mid-trade
+    (keeps the locked peak/floor, partials already taken, break-even flag) instead of re-arming
+    from scratch or re-taking partials. Best-effort; throttled by the caller."""
+    try:
+        payload = {"positions": POSITION_PROTECTION_STATE,
+                   "safety": {k: AUTO_TRADE_STATE.get(k) for k in
+                              ("equityHwm", "dayKey", "dailyRealizedPnl", "pausedUntil",
+                               "postLossUntil", "lossStreak", "winStreak")}}
+        PROTECTION_STATE_FILE.write_text(json.dumps(payload, default=str), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _load_protection_state() -> None:
+    try:
+        if PROTECTION_STATE_FILE.exists():
+            data = json.loads(PROTECTION_STATE_FILE.read_text(encoding="utf-8"))
+            if isinstance(data.get("positions"), dict):
+                POSITION_PROTECTION_STATE.update(data["positions"])
+            saf = data.get("safety") or {}
+            for k, v in saf.items():
+                if v is not None:
+                    AUTO_TRADE_STATE[k] = v
+    except Exception:
+        pass
+
+
+def _capital_circuit_breaker(blocked) -> dict[str, Any] | None:
+    """Daily-loss + equity-drawdown circuit breakers. Returns a blocked() result if a breaker
+    has tripped (so the gate stops the entry), else None. Gated by risk.useEquityProtection."""
+    risk_cfg = SETTINGS_STATE.get("risk", {}) if isinstance(SETTINGS_STATE.get("risk"), dict) else {}
+    if not risk_cfg.get("useEquityProtection", True):
+        return None
+    now = time.time()
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    if AUTO_TRADE_STATE.get("dayKey") != day:        # new UTC day → reset the daily tally
+        AUTO_TRADE_STATE["dayKey"] = day
+        AUTO_TRADE_STATE["dailyRealizedPnl"] = 0.0
+        AUTO_TRADE_STATE["dailyHaltAlerted"] = False
+    equity = float(_live_account().get("equity") or 0)
+    if equity <= 0:
+        return None
+    # 1) Daily realized-loss limit
+    daily_pnl = float(AUTO_TRADE_STATE.get("dailyRealizedPnl", 0.0))
+    max_daily_loss_pct = float(risk_cfg.get("maxDailyLossPct", 5.0) or 5.0)
+    if daily_pnl < 0 and abs(daily_pnl) >= equity * max_daily_loss_pct / 100.0:
+        if not AUTO_TRADE_STATE.get("dailyHaltAlerted"):
+            AUTO_TRADE_STATE["dailyHaltAlerted"] = True
+            _management_alert("Daily loss limit hit", f"Realized {daily_pnl:.2f} today ≥ {max_daily_loss_pct:.1f}% of equity ({equity:.2f}). Auto-entry halted until the next UTC day.", "danger")
+        return blocked(f"Daily loss limit reached ({daily_pnl:.2f} ≥ {max_daily_loss_pct:.1f}% of equity). Auto-entry halts until next UTC day.", {"dailyPnl": daily_pnl, "breaker": "daily_loss"})
+    # 2) Equity drawdown stop (high-water mark) → engage the kill switch
+    hwm = float(AUTO_TRADE_STATE.get("equityHwm", 0.0) or 0.0)
+    if equity > hwm:
+        AUTO_TRADE_STATE["equityHwm"] = hwm = equity
+    eq_stop_pct = float(risk_cfg.get("equityStopLossPct", 20.0) or 20.0)
+    if hwm > 0 and equity <= hwm * (1.0 - eq_stop_pct / 100.0):
+        kill_switch.activate(f"Equity protection: drawdown ≥ {eq_stop_pct:.0f}% from peak {hwm:.2f} (now {equity:.2f}).")
+        _management_alert("Equity stop — kill switch engaged", f"Equity {equity:.2f} fell ≥ {eq_stop_pct:.0f}% below the peak {hwm:.2f}. Trading halted; review before resetting the kill switch.", "danger")
+        return blocked("Equity drawdown stop hit — kill switch engaged.", {"equity": equity, "peak": hwm, "breaker": "equity_stop"})
+    return None
+
+
+_load_protection_state()   # crash recovery: resume mid-trade protection + safety counters on startup
 
 
 def _management_alert(title: str, body: str, kind: str = "success") -> None:
@@ -1132,6 +1206,10 @@ def _auto_manage_open_trades() -> None:
         # Publish AI directives for the tick-level EA (writes only if a path is set;
         # empty file when no open trades clears any stale directives).
         _write_mql5_control(control_lines)
+        # Persist protection + safety state (throttled) for crash recovery.
+        if time.time() - float(RECAP_STATE.get("lastProtSave", 0.0)) > 20:
+            RECAP_STATE["lastProtSave"] = time.time()
+            _save_protection_state()
     except Exception as exc:
         _push_notification("Protection loop error", str(exc), "danger")
 
@@ -2202,7 +2280,13 @@ def _auto_trade_tick(reason: str = "manual_tick") -> dict[str, Any]:
     if kill_switch.status().get("active"):
         return blocked("Emergency kill switch is active.", {"killSwitch": kill_switch.status()})
     if not status_payload.get("connected"):
+        if not AUTO_TRADE_STATE.get("disconnectAlerted"):
+            AUTO_TRADE_STATE["disconnectAlerted"] = True
+            _push_notification("MT5 disconnected", "Auto-entry paused — MT5 connection lost. It resumes automatically once reconnected. Open trades are protected by their broker SL.", "warning")
         return blocked("MT5 is not connected.", {"mt5": status_payload})
+    if AUTO_TRADE_STATE.get("disconnectAlerted"):
+        AUTO_TRADE_STATE["disconnectAlerted"] = False
+        _push_notification("MT5 reconnected", "Connection restored — auto-entry resumed.", "success")
     if not execution.get("liveTradingEnabled") or execution.get("dryRun", True):
         return blocked("Live Trading is OFF / Dry Run is ON.", {"execution": execution})
     if not execution.get("autoTradingEnabled"):
@@ -2218,6 +2302,10 @@ def _auto_trade_tick(reason: str = "manual_tick") -> dict[str, Any]:
     if now < float(AUTO_TRADE_STATE.get("postLossUntil", 0.0)):
         secs = float(AUTO_TRADE_STATE["postLossUntil"]) - now
         return blocked(f"Post-loss reanalysis cooldown: waiting {secs/60:.1f} min after the last losing trade before considering a new entry.", {"postLossSeconds": round(secs)})
+    # Capital circuit breakers — daily realized-loss limit + equity drawdown stop.
+    cb = _capital_circuit_breaker(blocked)
+    if cb is not None:
+        return cb
     market = _live_market()
 
     # Session filter: only trade during sessions selected in settings
