@@ -14,7 +14,11 @@ export default function Risk(){
   const [data,setData]=useState<any>({account:{},trades:{active:[]},warnings:[],limits:{}});
   const [edit,setEdit]=useState<any|null>(null); const [message,setMessage]=useState('');
   const [caps,setCaps]=useState<Record<string,number>>({});
+  const [refreshing,setRefreshing]=useState(false);
+  const [alertsOpen,setAlertsOpen]=useState(false); const [notes,setNotes]=useState<any[]>([]);
   const load=async()=>setData(await api.risk());
+  const refresh=async()=>{setRefreshing(true);await load();if(alertsOpen){const n:any=await api.notifications();setNotes(n?.items||[])}setMessage('Risk data refreshed.');setTimeout(()=>setMessage(''),1500);setRefreshing(false)};
+  const viewAllAlerts=async()=>{if(!alertsOpen){const n:any=await api.notifications();setNotes(n?.items||[])}setAlertsOpen(o=>!o)};
   useEffect(()=>{load(); const id=setInterval(load,7000); return()=>clearInterval(id)},[]);
   // Seed editable session caps once from the persisted limits (don't clobber edits on poll).
   useEffect(()=>{const sc=data?.limits?.sessionCaps; if(sc&&Object.keys(caps).length===0)setCaps(sc)},[data]);
@@ -58,7 +62,7 @@ export default function Risk(){
   };
 
   return <div className="risk-page exact-risk">
-    <PageHeader title="Risk Management Center" subtitle="Advanced risk controls, protection systems, and capital preservation engine." right={<><Tag color="green">Risk Engine: ACTIVE</Tag><button className="outline-button" onClick={load}><RefreshCcw size={14}/> Refresh</button></>}/>
+    <PageHeader title="Risk Management Center" subtitle="Advanced risk controls, protection systems, and capital preservation engine." right={<><Tag color="green">Risk Engine: ACTIVE</Tag><button className="outline-button" onClick={refresh} disabled={refreshing}><RefreshCcw size={14} className={refreshing?'spin':''}/> {refreshing?'Refreshing…':'Refresh'}</button></>}/>
     {demo&&<Card className="demo-banner"><ShieldCheck size={15}/><span>Demo data active — connect MetaTrader 5 for live account risk. Edits below persist and take effect on save.</span></Card>}
     {message&&<Card className="action-banner"><span>{message}</span></Card>}
     {edit&&<Card className="risk-edit-panel"><SectionTitle title={`Edit ${edit.rule||edit.title}`} right={<button className="ghost-button" onClick={()=>setEdit(null)}>Close</button>}/>
@@ -80,7 +84,7 @@ export default function Risk(){
           <Card><SectionTitle title="Spread & Slippage Guard"/><Checklist items={[{label:'Max Spread (XAUUSD)',value:String(data.market?.spread??'2.50')},{label:'Slippage Protection',value:'ON',type:'success'},{label:'Execution Filter',value:'ON',type:'success'},{label:'Market Quality Guard',value:'Active',type:'success'}]}/></Card>
         </div>
         <div className="grid grid-4" style={{marginTop:16}}>
-          <Card><SectionTitle title="Margin Health"/><Donut value={margin}/><strong className="center-value">{margin}%</strong></Card>
+          <Card><SectionTitle title="Margin Health"/><div className="donut-wrap"><Donut value={margin}/><strong className="donut-center">{margin}%</strong></div></Card>
           <Card><SectionTitle title="Loss Streak Protection"/><Donut value={Number(limits.lossStreakLimit||5)*8}/><Checklist items={[{label:'Max loss streak',value:String(limits.lossStreakLimit||5)},{label:'Current streak',value:'2'},{label:'Protection',value:'Armed',type:'success'}]}/></Card>
           <Card><SectionTitle title="Portfolio Correlation"/><Donut value={42}/><Checklist items={[{label:'Low (<0.30)',value:'23%'},{label:'Moderate',value:'0.42'},{label:'High (>0.70)',value:'23%'}]}/></Card>
           <Card><SectionTitle title="Risk Engine Controls"/><Checklist items={[{label:'Global Risk Engine',value:'ON',type:'success'},{label:'Auto Risk Adjustment',value:'ON',type:'success'},{label:'Correlation Guard',value:'ON',type:'success'},{label:'Volatility Adjustments',value:'ON',type:'success'}]}/></Card>
@@ -91,7 +95,7 @@ export default function Risk(){
         </div>
       </div>
       <div className="right-stack side-panel-sticky">
-        <Card><SectionTitle icon={<AlertTriangle size={16}/>} title="Live Warnings & Alerts" right={<button className="ghost-button">View All</button>}/>{(data.warnings||[]).length?<Checklist items={data.warnings.map((w:any)=>({label:w.title,value:w.time,type:w.type==='danger'?'danger':w.type==='success'?'success':'warning'}))}/>:<Checklist items={[{label:'System Status',value:'All Systems Operational',type:'success'}]}/>}</Card>
+        <Card><SectionTitle icon={<AlertTriangle size={16}/>} title="Live Warnings & Alerts" right={<button className="ghost-button" onClick={viewAllAlerts}>{alertsOpen?'Hide':'View All'}</button>}/>{(data.warnings||[]).length?<Checklist items={data.warnings.map((w:any)=>({label:w.title,value:w.time,type:w.type==='danger'?'danger':w.type==='success'?'success':'warning'}))}/>:<Checklist items={[{label:'System Status',value:'All Systems Operational',type:'success'}]}/>}{alertsOpen&&<div style={{marginTop:10,borderTop:'1px solid var(--border-soft)',paddingTop:10}}><p className="tiny muted" style={{marginBottom:6}}>Recent system alerts &amp; notifications</p>{notes.length?<Checklist items={notes.slice(0,25).map((n:any)=>({label:n.title||n.message||'Alert',value:String(n.time||'').slice(11,19)||'',type:n.kind==='danger'?'danger':n.kind==='success'?'success':'warning'}))}/>:<p className="tiny muted">No alerts recorded yet — the bot logs risk, fast-fail, break-even and circuit-breaker events here as they happen.</p>}</div>}</Card>
         <Card><SectionTitle icon={<ShieldCheck size={16}/>} title="Risk Engine Controls"/><Checklist items={[{label:'Global Risk Engine',value:'ON',type:'success'},{label:'Auto Risk Adjustment',value:'ON',type:'success'},{label:'Correlation Guard',value:'ON',type:'success'},{label:'Volatility Adjustments',value:'ON',type:'success'},{label:'Emergency Stop',value:'OFF',type:'success'},{label:'Manual Override',value:'DISABLED'}]}/><div className="detail-row"><span>Engine Status</span><strong className="positive">ACTIVE</strong></div></Card>
       </div>
     </div>

@@ -1330,6 +1330,47 @@ def _apply_runtime_settings() -> None:
 _apply_runtime_settings()
 STRATEGIES_STATE = {s["id"]: dict(s) for s in INSTITUTIONAL_STRATEGIES}
 
+
+def _register_installed_strategy(cand: dict[str, Any], evidence: dict[str, Any] | None = None) -> str:
+    """Make a Strategy-Lab install VISIBLE in the Strategies page and active in the engine. Adds an
+    entry to STRATEGIES_STATE (so it shows alongside your other strategies) carrying the installed
+    tuning profile, and removes any prior Lab-installed entry so only one 'active tuning' exists."""
+    for k in [k for k, v in STRATEGIES_STATE.items() if v.get("source") == "strategy_lab"]:
+        STRATEGIES_STATE.pop(k, None)
+    prof = cand.get("profile", {}) if isinstance(cand.get("profile"), dict) else {}
+    sid = f"lab-{cand.get('id', 'installed')}"[:48]
+    ev = evidence or {}
+    try:
+        wr = round(float(ev.get("winRate")), 1) if ev.get("winRate") not in (None, "") else 64.0
+    except Exception:
+        wr = 64.0
+    STRATEGIES_STATE[sid] = {
+        "id": sid, "name": cand.get("name", sid), "category": "ai-lab",
+        "description": cand.get("thesis") or "Active tuning installed from the AI Strategy Lab — re-tunes how strictly the bot judges every entry.",
+        "bestSessions": prof.get("allowedSessions") or ["London", "New York"],
+        "idealRegimes": ["Active tuning (Strategy Lab)"],
+        "requiredEvidence": ["passes your installed strictness profile"],
+        "minConfidence": prof.get("standardConfidence", decision_engine.min_standard_score),
+        "sniperConfidence": prof.get("sniperConfidence", decision_engine.min_sniper_score),
+        "enabled": True, "installed": True, "source": "strategy_lab",
+        "candidateSource": cand.get("source", "library"), "profile": prof,
+        "winRate": wr, "expectancy": (f"{ev.get('expectancyR')}R" if ev.get("expectancyR") is not None else "—"),
+        "maxDrawdown": (f"{ev.get('maxDrawdownR')}R" if ev.get("maxDrawdownR") is not None else "—"),
+    }
+    return sid
+
+
+def _restore_installed_strategy() -> None:
+    rec = (SETTINGS_STATE.get("strategyLab", {}) or {}).get("installed")
+    if isinstance(rec, dict) and rec.get("id"):
+        try:
+            _register_installed_strategy(rec, rec.get("evidence"))
+        except Exception:
+            pass
+
+
+_restore_installed_strategy()   # re-show a previously installed Lab tuning on startup
+
 # Persistent, structured risk limit overrides. Defaults match the mockup so the
 # Risk Management Center always shows real, editable numbers that survive saves.
 RISK_DEFAULTS: dict[str, Any] = {
@@ -2944,11 +2985,16 @@ def lab_install(payload: dict[str, Any] = Body(default={})):
     if prof.get("allowedSessions"):
         SETTINGS_STATE.setdefault("trading", {})["allowedSessions"] = prof["allowedSessions"]
     decision_engine.configure_strictness(ai_cfg)
-    _save_settings()
-    LAB_STATE["installedProfile"] = {"id": cand["id"], "name": cand["name"],
-                                     "appliedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     row = next((r for r in (LAB_STATE.get("lastResult") or {}).get("candidates", []) if r["id"] == cand["id"]), None)
-    _management_alert("Strategy installed", f"{cand['name']} is now your live config. {cand.get('thesis','')}", "success")
+    # Make it VISIBLE in the Strategies page + persist so it survives a restart.
+    sid = _register_installed_strategy(cand, row)
+    SETTINGS_STATE.setdefault("strategyLab", {})["installed"] = {
+        "id": cand["id"], "name": cand["name"], "thesis": cand.get("thesis", ""),
+        "source": cand.get("source", "library"), "profile": prof, "evidence": row}
+    _save_settings()
+    LAB_STATE["installedProfile"] = {"id": cand["id"], "name": cand["name"], "strategyId": sid,
+                                     "appliedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    _management_alert("Strategy installed", f"{cand['name']} is now your active tuning (shows in the Strategies page). {cand.get('thesis','')}", "success")
     return {"ok": True, "installed": LAB_STATE["installedProfile"], "evidence": row,
             "thesis": cand.get("thesis"), "appliedConfig": decision_engine.strictness_dict()}
 

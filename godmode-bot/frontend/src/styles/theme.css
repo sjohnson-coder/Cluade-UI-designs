@@ -230,6 +230,16 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .analytics-layout,.risk-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px}
 .analytics-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .analytics-grid .span-2{grid-column:span 2}
+/* Tabs with no right-hand side panel (Decisions / Backtest / Strategy Lab) use the FULL width. */
+.analytics-layout.solo{grid-template-columns:1fr}
+.analytics-layout.solo .analytics-grid{grid-template-columns:1fr}
+.analytics-layout.solo .analytics-grid .span-2{grid-column:span 1}
+.fullscreen-card{width:100%}
+/* Centered value inside a donut ring (e.g. Margin Health) — was overlapping the ring before. */
+.donut-wrap{position:relative}
+.donut-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px;font-weight:700;color:var(--text);line-height:1}
+.spin{animation:spin360 .8s linear infinite}
+@keyframes spin360{to{transform:rotate(360deg)}}
 .chart-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;border-top:1px solid var(--border-soft);padding-top:10px;margin-top:10px}
 .chart-summary span{font-size:11px;color:var(--text-muted);display:grid;gap:3px}
 .center-value{text-align:center;display:block;margin-top:-18px}

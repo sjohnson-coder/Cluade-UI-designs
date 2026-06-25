@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -159,16 +161,38 @@ def generate_candidates(provider: str, api_key: str, model: str, context: dict[s
         f"(trend, range, news-heavy, session-specific). Be diverse. {SCHEMA_HINT}"
     )
     url, headers, body = _build_request(provider, api_key, model, prompt)
-    try:
-        if _transport is not None:
-            data = _transport(url, headers, body)
-        else:
-            req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"),
-                                         headers={"User-Agent": "GodModeGoldBot/1.0", **headers}, method="POST")
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8", "ignore"))
-    except Exception as exc:
-        return {"ok": False, "message": f"AI request failed: {exc}", "provider": provider}
+    data = None
+    for attempt in range(3):   # retry transient rate-limit / overload with backoff
+        try:
+            if _transport is not None:
+                data = _transport(url, headers, body)
+            else:
+                req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"),
+                                             headers={"User-Agent": "GodModeGoldBot/1.0", **headers}, method="POST")
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8", "ignore"))
+            break
+        except urllib.error.HTTPError as he:
+            code = getattr(he, "code", 0)
+            if code in (429, 503, 529) and attempt < 2:
+                time.sleep(2 * (2 ** attempt))   # 2s, then 4s
+                continue
+            detail = ""
+            try:
+                detail = he.read().decode("utf-8", "ignore")[:160]
+            except Exception:
+                pass
+            if code == 429:
+                return {"ok": False, "rateLimited": True, "provider": provider,
+                        "message": f"{provider.upper()} rate-limited the request (429) even after retries — your key is being throttled or is out of credits. Wait ~a minute and try again, or check your plan/billing at the provider. {detail}"}
+            if code in (401, 403):
+                return {"ok": False, "provider": provider,
+                        "message": f"{provider.upper()} rejected the API key ({code}) — double-check the key (and that it has access to the model) in Settings → AI Strategy Generator. {detail}"}
+            return {"ok": False, "provider": provider, "message": f"AI request failed: HTTP {code}. {detail}"}
+        except Exception as exc:
+            return {"ok": False, "message": f"AI request failed: {exc}", "provider": provider}
+    if data is None:
+        return {"ok": False, "provider": provider, "message": f"{provider.upper()} kept rate-limiting the request — try again shortly."}
     raw = _parse_array(_extract_text(provider, data))
     clean = [c for c in (sanitize_profile(r) for r in raw) if c]
     if not clean:

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, FileText, RefreshCcw } from 'lucide-react';
+import { Download, FileText, RefreshCcw, Gauge, FlaskConical, Sparkles, Rss, Play } from 'lucide-react';
 import { Card, Checklist, DataTable, MetricCard, PageHeader, SectionTitle, Tag, ToggleSwitch } from '../components/ui';
 import { BarDistribution, Donut, DrawdownChart, EquityCurve, ReturnsHeatmap, ScatterPerformance } from '../components/Charts';
 import { api, downloadExport } from '../lib/api';
@@ -40,14 +40,14 @@ function BacktestTab(){
   const applyVerdicts=async()=>{if(!res?.strategies)return;const r:any=await api.backtestApplyVerdicts({strategies:res.strategies});setMsg(r?.message||'Applied.')};
   const resetW=async()=>{const r:any=await api.backtestWeightsReset();setMsg(r?.message||'Reset to defaults.')};
   const k=res?.overall||{};
-  return <div className="analytics-layout"><div className="analytics-grid">
+  return <div className="analytics-layout solo"><div className="analytics-grid">
     <Card className="span-2"><SectionTitle title="Cost-Aware Backtest & Walk-Forward" right={<Tag color="purple">Replays the real engine</Tag>}/>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'flex-end',marginTop:6}}>
         <div style={{display:'flex',flexDirection:'column',gap:4,width:120}}><span className="tiny muted">M15 bars</span><input className="input" type="number" value={bars} onChange={e=>setBars(Number(e.target.value))}/></div>
         <div style={{display:'flex',flexDirection:'column',gap:4,width:120}}><span className="tiny muted">Spread (USD)</span><input className="input" type="number" step="0.01" value={spread} onChange={e=>setSpread(Number(e.target.value))}/></div>
         <div style={{display:'flex',flexDirection:'column',gap:4,width:130}}><span className="tiny muted">Commission (USD)</span><input className="input" type="number" step="0.01" value={commission} onChange={e=>setCommission(Number(e.target.value))}/></div>
         <button className="gold-button" onClick={run} disabled={loading==='run'} style={{height:38}}>{loading==='run'?'Running…':'Run Backtest'}</button>
-        <button className="gold-button" onClick={validate} disabled={loading==='val'} style={{height:38}} title="Replays the real engine over ~2 years of your MT5 history and gives a GO / CAUTION / NO-GO">{loading==='val'?'Validating…':'🎯 Validate My Edge'}</button>
+        <button className="gold-button" onClick={validate} disabled={loading==='val'} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Replays the real engine over ~2 years of your MT5 history and gives a GO / CAUTION / NO-GO">{loading==='val'?'Validating…':<><Gauge size={15}/> Validate My Edge</>}</button>
       </div>
       <p className="tiny muted" style={{marginTop:6}}>“Validate My Edge” pulls up to ~2 years of your real MT5 M15 history and returns a plain-English GO / CAUTION / NO-GO. Scroll your MT5 chart far back first so the terminal caches the history. Connect MT5 for a real verdict (otherwise it runs on synthetic data).</p>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'center',marginTop:12}}>
@@ -78,14 +78,14 @@ function StrategyLabTab(){
   const fetchFeed=async()=>{setLoading(true);setMsg('');const r:any=await api.labFetchFeed();setLoading(false);if(r?.ok){setMsg(`📡 ${r.message}`);run()}else setMsg(r?.message||'Feed fetch failed. Set a URL in Settings → Strategy Lab.')};
   const rec=res?.recommendation; const base=res?.baseline||{};
   const rows=[{name:res?.baseline?.name||'Your current config',...base,_base:true},...(res?.candidates||[])];
-  return <div className="analytics-layout"><div className="analytics-grid">
+  return <div className="analytics-layout solo"><div className="analytics-grid">
     <Card className="span-2"><SectionTitle title="AI Strategy Lab" right={<Tag color="purple">Tests candidate styles on YOUR data</Tag>}/>
       <p className="tiny muted">The agent back- and forward-tests a library of candidate trading STYLES against your own MT5 history and head-to-head with your live config. It only recommends an upgrade that genuinely beats your current setup out-of-sample — and nothing is applied until you click Install. Connect MT5 for a real verdict (otherwise it runs on synthetic data).</p>
       <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',marginTop:10}}>
-        <button className="gold-button" onClick={run} disabled={loading} style={{height:38}}>{loading?'Testing all candidates…':'🧠 Run Strategy Lab'}</button>
-        <button className="outline-button" onClick={genAI} disabled={loading} style={{height:38}} title="Ask your configured Claude/ChatGPT to propose new candidate styles (Settings → AI Strategy Generator)">🤖 Generate with AI</button>
-        <button className="outline-button" onClick={fetchFeed} disabled={loading} style={{height:38}} title="Pull candidate profiles from your trusted feed URL (Settings → Strategy Lab)">📡 Fetch feed</button>
-        {installed&&<span className="tiny muted">Installed: <strong>{installed.name}</strong></span>}
+        <button className="gold-button" onClick={run} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}}>{loading?'Working…':<><FlaskConical size={15}/> Run Strategy Lab</>}</button>
+        <button className="outline-button" onClick={genAI} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Ask your configured Claude/ChatGPT to propose new candidate styles (Settings → AI Strategy Generator)"><Sparkles size={15}/> Generate with AI</button>
+        <button className="outline-button" onClick={fetchFeed} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Pull candidate profiles from your trusted feed URL (Settings → Strategy Lab)"><Rss size={15}/> Fetch feed</button>
+        {installed&&<span className="tiny muted">Active tuning: <strong>{installed.name}</strong> · shows in your Strategies page</span>}
       </div>
       {res?.span&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles</p>}
       {msg&&<p className="gold tiny" style={{marginTop:6}}>{msg}</p>}
@@ -96,9 +96,9 @@ function StrategyLabTab(){
       {rec.thesis&&<p className="tiny muted" style={{marginTop:4}}>{rec.thesis}</p>}
       <button className="gold-button" style={{marginTop:8,height:36}} onClick={()=>install(rec.id,rec.name)}>Install {rec.name}</button>
     </Card>}
-    {res?.ok&&<Card className="span-2"><SectionTitle title="Candidates vs your current config — net of costs"/>
-      <DataTable columns={['name','trades','expectancyR','vsBaseline','profitFactor','winRate','oos','install']} rows={rows.map((r:any)=>({_r:r,name:r.name,trades:r.trades,expectancyR:`${r.expectancyR}R`,vsBaseline:r._base?'—':`${Number(r.expectancyVsBaseline)>=0?'+':''}${r.expectancyVsBaseline}R`,profitFactor:r.profitFactor,winRate:`${r.winRate}%`,oos:`${r.oosConsistencyPct||0}%`,install:''}))}
-        renderCell={(row:any,c:string)=>c==='vsBaseline'&&!row._r._base?<span className={Number(row._r.expectancyVsBaseline)>=0?'positive':'negative'}>{row.vsBaseline}</span>:c==='install'?(row._r._base?<Tag color="blue">current</Tag>:<button className="ghost-button" style={{height:28}} onClick={()=>install(row._r.id,row._r.name)}>Install</button>):c==='name'?<span><strong>{row.name}</strong>{row._r.thesis?<><br/><span className="tiny muted">{row._r.thesis}</span></>:null}</span>:row[c]}/>
+    {res?.ok&&<Card className="span-2 fullscreen-card"><SectionTitle title="Candidates vs your current config — net of costs"/>
+      <div style={{overflowX:'auto'}}><DataTable columns={['name','trades','expectancyR','vsBaseline','profitFactor','winRate','oos','install']} rows={rows.map((r:any)=>({_r:r,name:r.name,trades:r.trades,expectancyR:`${r.expectancyR}R`,vsBaseline:r._base?'—':`${Number(r.expectancyVsBaseline)>=0?'+':''}${r.expectancyVsBaseline}R`,profitFactor:r.profitFactor,winRate:`${r.winRate}%`,oos:`${r.oosConsistencyPct||0}%`,install:''}))}
+        renderCell={(row:any,c:string)=>c==='vsBaseline'&&!row._r._base?<span className={Number(row._r.expectancyVsBaseline)>=0?'positive':'negative'}>{row.vsBaseline}</span>:c==='install'?(row._r._base?<Tag color="blue">baseline</Tag>:(installed&&(installed.id===row._r.id||installed.strategyId===`lab-${row._r.id}`)?<Tag color="green">✓ installed</Tag>:<button className="ghost-button" style={{height:28}} onClick={()=>install(row._r.id,row._r.name)}>Install</button>)):c==='name'?<span><strong>{row.name}</strong>{row._r.thesis?<><br/><span className="tiny muted">{row._r.thesis}</span></>:null}</span>:row[c]}/></div>
     </Card>}
     {res&&!res.ok&&<Card className="span-2"><p className="muted">{res.message||'Run the lab to test candidate strategies against your history.'}</p></Card>}
   </div></div>;
@@ -111,7 +111,7 @@ function DecisionLogTab(){
   const cats:[string,string][]=[['all','All'],['entry','Entries'],['management','Management'],['close','Closes']];
   const fmtTime=(e:any)=>String(e.ts||'').replace('T',' ').replace('Z',' UTC');
   const badge=(c:string)=>c==='entry'?<Tag color="blue">entry</Tag>:c==='management'?<Tag color="purple">mgmt</Tag>:<Tag color="gold">close</Tag>;
-  return <div className="analytics-layout"><div className="analytics-grid">
+  return <div className="analytics-layout solo"><div className="analytics-grid">
     <Card className="span-2"><SectionTitle title="Decision & Management Journal" right={<Tag color="green">WHY it traded — or didn't</Tag>}/>
       <p className="tiny muted">Every entry decision (taken AND skipped, with the exact confidence + blocking reason), every management action (break-even, trail, recovery-room, fast-fail, partials), and every close outcome — persisted across restarts. Identical "waiting" ticks are collapsed; a new row appears whenever the bot's decision or reason CHANGES.</p>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
