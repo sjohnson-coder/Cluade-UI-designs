@@ -409,6 +409,18 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
     else:
         efficiency_ratio = 0.5
 
+    # Short-window (8-bar) efficiency + its direction. A FRESH trend leg out of a reversal shows a
+    # LOW 20-bar ER (the window still holds the prior swing) but a HIGH 8-bar ER pushing one way.
+    # This lets the bot stop sitting out the START of a clean move without loosening the gate.
+    es_n = min(8, len(closes) - 1)
+    if es_n >= 4:
+        s_net = closes[-1] - closes[-1 - es_n]
+        s_path = sum(abs(closes[i] - closes[i - 1]) for i in range(-es_n, 0)) or 0.01
+        efficiency_short = round(abs(s_net) / s_path, 3)
+        efficiency_short_dir = "BUY" if s_net > 0 else "SELL"
+    else:
+        efficiency_short, efficiency_short_dir = efficiency_ratio, "WAIT"
+
     # Momentum
     bull_bars = sum(1 for c in recent if float(c.get("close", 0)) >= float(c.get("open", 0)))
     bear_bars = len(recent) - bull_bars
@@ -505,6 +517,9 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
         "htfAligned": htf_aligned,
         "weakAlignment": weak_alignment,
         "efficiencyRatio": efficiency_ratio,
+        "efficiencyShort": efficiency_short,
+        "efficiencyShortDir": efficiency_short_dir,
+        "efficiencyShortMove": round(abs(closes[-1] - closes[-1 - es_n]), 3) if es_n >= 4 else 0.0,
         "h1Aligned": h1_aligned,
         "htfAlignmentScore": round(htf_score, 1),
         "liquiditySwept": liquidity_swept,
@@ -586,6 +601,12 @@ class GoldDecisionEngine:
         # Choppy/range filter. Below `hard` the market is a tight range → no entries
         # (this is what stops the bot bleeding inside sideways chop).
         self.min_efficiency_ratio = 0.28
+        # Fresh-leg override: the 20-bar efficiency is backward-looking, so it vetoes the START of a
+        # clean new move (the window still holds the prior swing). When a strong short-window leg is
+        # underway in the trade's direction, allow a SCOUT entry instead of hard-blocking on chop.
+        self.fresh_leg_override = True
+        self.fresh_leg_eff = 0.58        # short-window efficiency that counts as a clean fresh leg
+        self.fresh_leg_min_atr = 0.6     # leg must have moved at least this many ATRs (not a tiny wiggle)
         # Range awareness — in a sideways range (no confirmed trend), don't buy near the top or
         # sell near the bottom. Today's lesson: the bot kept signalling BUYs at the range highs.
         self.range_awareness = True
@@ -797,7 +818,19 @@ class GoldDecisionEngine:
         # Choppy/range filter — the biggest cause of repeated fast-fails. A tight,
         # back-and-forth range has low efficiency; do not trade it.
         er = float(features.get("efficiencyRatio", 0.5))
-        if er < self.min_efficiency_ratio:
+        er_short = float(features.get("efficiencyShort", er))
+        short_dir = str(features.get("efficiencyShortDir", "WAIT"))
+        move_atr = float(features.get("efficiencyShortMove", 0.0)) / max(float(features.get("atr", 0.01)), 0.01)
+        # A clean, sized short-window leg in the SAME direction as the trade = a new move starting;
+        # the 20-bar ER is just stale. Allow it as a scout instead of vetoing it for "chop".
+        fresh_leg = (self.fresh_leg_override and er < self.min_efficiency_ratio
+                     and er_short >= self.fresh_leg_eff and short_dir == side
+                     and move_atr >= self.fresh_leg_min_atr and not features.get("rangeBlock"))
+        if fresh_leg:
+            features["freshLeg"] = True
+            soft_blocks.append(f"20-bar efficiency low ({er:.2f}) but a fresh {side} leg is underway "
+                               f"(8-bar efficiency {er_short:.2f}, {move_atr:.1f} ATR) — scout size, manage tightly.")
+        elif er < self.min_efficiency_ratio:
             hard_blocks.append(f"Choppy/range market: trend efficiency {er:.2f} < {self.min_efficiency_ratio:.2f} — price is ranging, not trending. Wait for a clean break.")
         elif er < self.min_efficiency_ratio + 0.10:
             soft_blocks.append(f"Low trend efficiency ({er:.2f}) — choppy; scout size only")
