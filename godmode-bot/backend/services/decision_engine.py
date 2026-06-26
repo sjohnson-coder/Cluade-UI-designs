@@ -768,6 +768,16 @@ class GoldDecisionEngine:
         # (regime fit x live win-rate x expectancy x session fit) and the best is chosen.
         candidates = self._rank_strategies(regime, strategies, market, calendar_status, cleanliness, memory, features, session_score)
         selected = candidates[0]["strategy"] if candidates else self._select_strategy(regime, strategies, market, calendar_status, cleanliness)
+        # Per-strategy gates: a strategy may carry its OWN entry gates (gateProfile). The router
+        # picks the best strategy for the bar, then we judge the entry by THAT strategy's gates
+        # (falling back to the global strictness). Strategies without a gateProfile — i.e. all the
+        # built-in ones — keep the exact global behaviour, so this changes nothing for them. This is
+        # what lets an installed/range strategy trade its conditions without a global config rewrite.
+        _gp = selected.get("gateProfile") if isinstance(selected, dict) else None
+        _gp = _gp if isinstance(_gp, dict) else {}
+        eff_take = float(_gp.get("minTakeScore", self.min_take_score))
+        eff_rr   = float(_gp.get("minRiskReward", self.min_rr))
+        eff_eff  = float(_gp.get("minEfficiency", self.min_efficiency_ratio))
         questions = self._trader_questions(market, regime, calendar_status, macro, vol_status, cleanliness, features, session_score)
         factors   = self._score_factors(market, regime, selected, questions, macro, vol_status, memory, features, session_score)
         raw       = sum(f.score * f.weight for f in factors) / max(sum(f.weight for f in factors), 1)
@@ -799,8 +809,8 @@ class GoldDecisionEngine:
             hard_blocks.append(f"Spread too wide: {spread:.2f} (max {self.max_spread:.2f})")
         if not cleanliness.get("isClean", True):
             hard_blocks.append("Market cleanliness: " + "; ".join(cleanliness.get("dirtyReasons", [])))
-        if rr < self.min_rr:
-            hard_blocks.append(f"R/R too low: {rr:.2f} (min {self.min_rr:.2f})")
+        if rr < eff_rr:
+            hard_blocks.append(f"R/R too low: {rr:.2f} (min {eff_rr:.2f})")
         # Over-extension: graded AND trend-aware. A genuine chase (> hard) is blocked; a mild
         # stretch (> soft) is only a scout flag. When riding a strong EMA-aligned efficient
         # trend we anchor to ema20 (the trend hugs it) and widen the thresholds, so we ride
@@ -823,16 +833,16 @@ class GoldDecisionEngine:
         move_atr = float(features.get("efficiencyShortMove", 0.0)) / max(float(features.get("atr", 0.01)), 0.01)
         # A clean, sized short-window leg in the SAME direction as the trade = a new move starting;
         # the 20-bar ER is just stale. Allow it as a scout instead of vetoing it for "chop".
-        fresh_leg = (self.fresh_leg_override and er < self.min_efficiency_ratio
+        fresh_leg = (self.fresh_leg_override and er < eff_eff
                      and er_short >= self.fresh_leg_eff and short_dir == side
                      and move_atr >= self.fresh_leg_min_atr and not features.get("rangeBlock"))
         if fresh_leg:
             features["freshLeg"] = True
             soft_blocks.append(f"20-bar efficiency low ({er:.2f}) but a fresh {side} leg is underway "
                                f"(8-bar efficiency {er_short:.2f}, {move_atr:.1f} ATR) — scout size, manage tightly.")
-        elif er < self.min_efficiency_ratio:
-            hard_blocks.append(f"Choppy/range market: trend efficiency {er:.2f} < {self.min_efficiency_ratio:.2f} — price is ranging, not trending. Wait for a clean break.")
-        elif er < self.min_efficiency_ratio + 0.10:
+        elif er < eff_eff:
+            hard_blocks.append(f"Choppy/range market: trend efficiency {er:.2f} < {eff_eff:.2f} — price is ranging, not trending. Wait for a clean break.")
+        elif er < eff_eff + 0.10:
             soft_blocks.append(f"Low trend efficiency ({er:.2f}) — choppy; scout size only")
         # Structure / HTF gate. A full M15 stack is ideal, but a PULLBACK (weak
         # alignment) that agrees with the H4/D1 bias is a high-quality entry — allow it
@@ -868,8 +878,8 @@ class GoldDecisionEngine:
                 hard_blocks.append(f"RSI {features['rsi14']:.0f} oversold against bias — do not sell the bottom")
             else:
                 soft_blocks.append(f"RSI {features['rsi14']:.0f} depressed but trend/HTF bias supports — manage tightly")
-        if confidence < self.min_take_score:
-            hard_blocks.append(f"Confidence {confidence}% below minimum threshold {self.min_take_score}%")
+        if confidence < eff_take:
+            hard_blocks.append(f"Confidence {confidence}% below minimum threshold {eff_take}%")
         elif confidence < self.min_standard_score:
             soft_blocks.append(f"Scout entry: confidence {confidence}% below standard threshold {self.min_standard_score}%")
         # Higher-timeframe bias gate. In sniper mode a counter-HTF trade is blocked
@@ -1060,8 +1070,13 @@ class GoldDecisionEngine:
             else:
                 fit = 0.25
             ideal = [str(r).lower() for r in s.get("idealRegimes", [])]
-            if any(tok in regime_l or regime_l in tok for tok in ideal):
-                fit = fit + 0.15
+            regime_match = any(tok in regime_l or regime_l in tok for tok in ideal)
+            if regime_match:
+                # A strategy that self-declares THIS regime as ideal competes at near-preferred
+                # level. This is how an INSTALLED strategy (or a future regime strategy) earns
+                # selection on its merits instead of being permanently out-voted by the hardcoded
+                # preferred list — the entry is then judged by ITS OWN gates (gateProfile).
+                fit = max(fit, 0.82) if name not in preferred else min(1.0, fit + 0.10)
             fit = max(0.05, min(1.0, fit))
             mem = mem_by_name.get(name)
             trades = int(mem.get("trades", 0)) if mem else 0

@@ -107,7 +107,7 @@ function StrategyLabTab(){
         <button className="gold-button" onClick={run} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}}>{loading?'Working…':<><FlaskConical size={15}/> Run Strategy Lab</>}</button>
         <button className="outline-button" onClick={genAI} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Ask your configured Claude/ChatGPT to propose new candidate styles (Settings → AI Strategy Generator)"><Sparkles size={15}/> Generate with AI</button>
         <button className="outline-button" onClick={fetchFeed} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Pull candidate profiles from your trusted feed URL (Settings → Strategy Lab)"><Rss size={15}/> Fetch feed</button>
-        {installed&&<span className="tiny muted">Active tuning: <strong>{installed.name}</strong> · shows in your Strategies page</span>}
+        {installed&&<span className="tiny muted">Installed: <strong>{installed.name}</strong> · competes in your rotation with its own gates (your global strictness is untouched)</span>}
         {installed&&<button className="ghost-button" style={{height:34,display:'inline-flex',alignItems:'center',gap:6}} onClick={uninstall} title="Remove this tuning and restore the strictness you had before installing it"><RotateCcw size={14}/> Uninstall &amp; revert</button>}
       </div>
       {res?.span&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles</p>}

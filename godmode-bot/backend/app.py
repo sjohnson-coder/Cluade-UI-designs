@@ -1336,6 +1336,24 @@ _apply_runtime_settings()
 STRATEGIES_STATE = {s["id"]: dict(s) for s in INSTITUTIONAL_STRATEGIES}
 
 
+def _profile_to_gate(prof: dict[str, Any]) -> dict[str, Any]:
+    """Translate a Lab candidate's strictness profile into per-strategy ENTRY GATES, so an installed
+    strategy judges its OWN entries by its OWN rules (efficiency / R-R / confidence) instead of
+    rewriting the GLOBAL strictness. This is what makes an install additive rather than destructive."""
+    gp: dict[str, Any] = {}
+    if prof.get("minEfficiencyRatio") is not None:
+        gp["minEfficiency"] = float(prof["minEfficiencyRatio"])
+    if prof.get("minRiskReward") is not None:
+        gp["minRiskReward"] = float(prof["minRiskReward"])
+    allow_scout = bool(prof.get("allowScoutEntries", True))
+    take = prof.get("scoutConfidence") if allow_scout else prof.get("standardConfidence")
+    if take is None:
+        take = prof.get("standardConfidence", prof.get("scoutConfidence"))
+    if take is not None:
+        gp["minTakeScore"] = float(take)
+    return gp
+
+
 def _register_installed_strategy(cand: dict[str, Any], evidence: dict[str, Any] | None = None) -> str:
     """Make a Strategy-Lab install VISIBLE in the Strategies page and active in the engine. Adds an
     entry to STRATEGIES_STATE (so it shows alongside your other strategies) carrying the installed
@@ -1351,12 +1369,13 @@ def _register_installed_strategy(cand: dict[str, Any], evidence: dict[str, Any] 
         wr = 64.0
     STRATEGIES_STATE[sid] = {
         "id": sid, "name": cand.get("name", sid), "category": "ai-lab",
-        "description": cand.get("thesis") or "Active tuning installed from the AI Strategy Lab — re-tunes how strictly the bot judges every entry.",
+        "description": cand.get("thesis") or "Installed from the AI Strategy Lab — competes in the rotation with its own entry gates (it does NOT change your global strictness).",
         "bestSessions": prof.get("allowedSessions") or ["London", "New York"],
-        "idealRegimes": ["Active tuning (Strategy Lab)"],
-        "requiredEvidence": ["passes your installed strictness profile"],
+        "idealRegimes": prof.get("idealRegimes") or ["Strong Bullish Trend", "Strong Bearish Trend", "Volatility Expansion"],
+        "requiredEvidence": ["passes this strategy's own entry gates"],
         "minConfidence": prof.get("standardConfidence", decision_engine.min_standard_score),
         "sniperConfidence": prof.get("sniperConfidence", decision_engine.min_sniper_score),
+        "gateProfile": _profile_to_gate(prof),
         "enabled": True, "installed": True, "source": "strategy_lab",
         "candidateSource": cand.get("source", "library"), "profile": prof,
         "winRate": wr, "expectancy": (f"{ev.get('expectancyR')}R" if ev.get("expectancyR") is not None else "—"),
@@ -3057,76 +3076,70 @@ def lab_generate(payload: dict[str, Any] = Body(default={})):
 
 @app.post("/api/lab/install")
 def lab_install(payload: dict[str, Any] = Body(default={})):
-    """Apply a candidate profile to the LIVE engine + persist it, and return the back/forward
-    evidence + thesis that justified it. Only ever called after the user clicks Install."""
+    """ADDITIVELY install a candidate: register it as a real strategy carrying its OWN entry gates
+    and let the router pick it when it fits — WITHOUT rewriting the global strictness. Returns the
+    back/forward evidence + thesis. Only ever called after the user clicks Install."""
     cand = strategy_lab.get(str(payload.get("id", "")))
     if not cand:
         return {"ok": False, "message": f"Unknown candidate '{payload.get('id')}'."}
     prof = cand["profile"]
-    ai_cfg = SETTINGS_STATE.setdefault("ai", {})
     lab_state = SETTINGS_STATE.setdefault("strategyLab", {})
-    # Snapshot the user's strictness BEFORE the first install so Uninstall can restore it exactly.
-    # Chained installs keep the original baseline (only snapshot when nothing is installed).
-    if not lab_state.get("installed"):
-        lab_state["preInstallAi"] = {k: ai_cfg.get(k) for k in _LAB_GATE_KEYS if k in ai_cfg}
-        lab_state["preInstallSessions"] = (SETTINGS_STATE.get("trading", {}) or {}).get("allowedSessions")
-    for k in _LAB_GATE_KEYS:
-        if k in prof:
-            ai_cfg[k] = prof[k]
-    if prof.get("allowedSessions"):
-        SETTINGS_STATE.setdefault("trading", {})["allowedSessions"] = prof["allowedSessions"]
-    decision_engine.configure_strictness(ai_cfg)
     row = next((r for r in (LAB_STATE.get("lastResult") or {}).get("candidates", []) if r["id"] == cand["id"]), None)
-    # Make it VISIBLE in the Strategies page + persist so it survives a restart.
+    # Register it as a visible, removable strategy. It competes in the rotation with its OWN gates;
+    # the global strictness is left untouched (that's the whole point — installs are additive now).
     sid = _register_installed_strategy(cand, row)
-    SETTINGS_STATE.setdefault("strategyLab", {})["installed"] = {
+    lab_state["installed"] = {
         "id": cand["id"], "name": cand["name"], "thesis": cand.get("thesis", ""),
-        "source": cand.get("source", "library"), "profile": prof, "evidence": row}
+        "source": cand.get("source", "library"), "profile": prof, "evidence": row,
+        "additive": True, "strategyId": sid}
     _save_settings()
     LAB_STATE["installedProfile"] = {"id": cand["id"], "name": cand["name"], "strategyId": sid,
                                      "appliedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    _management_alert("Strategy installed", f"{cand['name']} is now your active tuning (shows in the Strategies page). {cand.get('thesis','')}", "success")
+    _management_alert("Strategy installed", f"{cand['name']} now competes in your strategy rotation with its own entry gates — it did NOT change your global strictness. {cand.get('thesis','')}", "success")
     return {"ok": True, "installed": LAB_STATE["installedProfile"], "evidence": row,
-            "thesis": cand.get("thesis"), "appliedConfig": decision_engine.strictness_dict()}
+            "thesis": cand.get("thesis"), "gateProfile": _profile_to_gate(prof), "additive": True}
 
 
 @app.post("/api/lab/uninstall")
 def lab_uninstall(payload: dict[str, Any] = Body(default={})):
-    """Completely reverse a Strategy-Lab install: remove its visible strategy entry AND restore the
-    exact strictness you had before installing it. If the install predates revert-tracking (no
-    snapshot was taken), fall back to the safe DEFAULT strictness so you're never stuck."""
+    """Remove an installed Strategy-Lab strategy. Additive installs (the new default) just drop the
+    strategy from the rotation — the global strictness was never touched. LEGACY installs that
+    rewrote the global strictness are reverted to the snapshot taken at install time, or to safe
+    defaults if the install predates revert-tracking (so a stuck user is never trapped)."""
     lab_state = SETTINGS_STATE.setdefault("strategyLab", {})
     installed = lab_state.get("installed")
     if not installed and not any(v.get("source") == "strategy_lab" for v in STRATEGIES_STATE.values()):
-        return {"ok": False, "message": "No Strategy-Lab tuning is installed."}
-    ai_cfg = SETTINGS_STATE.setdefault("ai", {})
-    pre = lab_state.get("preInstallAi")
-    if not pre:  # install made before this fix existed — restore safe defaults so the user is un-stuck
-        d = _default_settings().get("ai", {})
-        pre = {k: d.get(k) for k in _LAB_GATE_KEYS if k in d}
-    for k, v in pre.items():
-        ai_cfg[k] = v
-    # Drop any gate key the snapshot didn't carry so configure_strictness re-applies the preset
-    # default for it (otherwise a leftover install value — e.g. minEfficiencyRatio — would persist).
-    for k in _LAB_GATE_KEYS:
-        if k not in pre:
-            ai_cfg.pop(k, None)
-    pre_sess = lab_state.get("preInstallSessions")
-    if pre_sess is not None:
-        SETTINGS_STATE.setdefault("trading", {})["allowedSessions"] = pre_sess
-    decision_engine.configure_strictness(ai_cfg)
+        return {"ok": False, "message": "No Strategy-Lab strategy is installed."}
+    name = (installed or {}).get("name", "Lab strategy")
+    additive = bool((installed or {}).get("additive"))
+    # Always remove the visible strategy entry from the rotation.
     for k in [k for k, v in STRATEGIES_STATE.items() if v.get("source") == "strategy_lab"]:
         STRATEGIES_STATE.pop(k, None)
-    name = (installed or {}).get("name", "Lab tuning")
+    msg_tail = ""
+    if not additive:
+        # LEGACY install mutated the GLOBAL strictness — restore it (snapshot, else safe defaults).
+        ai_cfg = SETTINGS_STATE.setdefault("ai", {})
+        pre = lab_state.get("preInstallAi")
+        if not pre:
+            d = _default_settings().get("ai", {})
+            pre = {k: d.get(k) for k in _LAB_GATE_KEYS if k in d}
+        for k, v in pre.items():
+            ai_cfg[k] = v
+        for k in _LAB_GATE_KEYS:
+            if k not in pre:
+                ai_cfg.pop(k, None)
+        pre_sess = lab_state.get("preInstallSessions")
+        if pre_sess is not None:
+            SETTINGS_STATE.setdefault("trading", {})["allowedSessions"] = pre_sess
+        decision_engine.configure_strictness(ai_cfg)
+        msg_tail = f" Restored your global strictness: {decision_engine.strictness_dict().get('strictnessMode', 'balanced')}."
     for key in ("installed", "preInstallAi", "preInstallSessions"):
         lab_state.pop(key, None)
     LAB_STATE["installedProfile"] = None
     _save_settings()
-    restored = decision_engine.strictness_dict()
-    _management_alert("Strategy uninstalled",
-                      f"Removed '{name}' and restored your previous strictness ({restored.get('strictnessMode','balanced')}).", "info")
-    return {"ok": True, "message": f"Uninstalled '{name}'. Restored strictness: {restored.get('strictnessMode','balanced')}.",
-            "restoredConfig": restored}
+    _management_alert("Strategy uninstalled", f"Removed '{name}' from your strategy rotation.{msg_tail}", "info")
+    return {"ok": True, "message": f"Removed '{name}' from the rotation.{msg_tail}",
+            "restoredConfig": decision_engine.strictness_dict()}
 
 
 @app.post("/api/backtest/apply-verdicts")
