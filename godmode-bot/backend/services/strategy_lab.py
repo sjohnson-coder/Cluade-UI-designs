@@ -76,25 +76,31 @@ class StrategyLab:
         return next((c for c in self.candidates() if c["id"] == cid), None)
 
     def evaluate(self, candles: list[dict[str, Any]], engine: Any, strategies: list[dict[str, Any]],
-                 backtester: Any, baseline_profile: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+                 backtester: Any, baseline_profile: dict[str, Any], params: dict[str, Any],
+                 progress: Any = None) -> dict[str, Any]:
         """Backtest the live BASELINE config and every candidate over the SAME history, compare,
         and recommend the best candidate that beats the baseline out-of-sample. The engine's live
         config is snapshotted and ALWAYS restored, so this never disturbs live trading."""
         snapshot = engine.strictness_dict()
         base_sessions = params.get("allowedSessions")
         min_trades = int(params.get("minSample", 30))
+        total = len(self.candidates()) + 1   # baseline + candidates
+        def _sub(idx: int, name: str):
+            # map each candidate's internal 0..1 replay progress onto its slice of the whole run
+            return (lambda frac, stage: progress((idx + max(0.0, min(1.0, frac))) / total,
+                                                 f"Testing {name} ({idx + 1}/{total}) — {stage}")) if progress else None
         try:
             engine.configure_strictness(baseline_profile or snapshot)
-            base = backtester.run(candles, engine, strategies, params)
+            base = backtester.run(candles, engine, strategies, params, progress=_sub(0, "your current config"))
             if not base.get("ok"):
                 return {"ok": False, "message": base.get("message", "Baseline backtest failed."), "candles": base.get("candles")}
             base_m = base.get("overall", {})
             rows: list[dict[str, Any]] = []
-            for c in self.candidates():
+            for ci, c in enumerate(self.candidates()):
                 prof = {**(baseline_profile or {}), **c["profile"]}
                 engine.configure_strictness(prof)
                 p = {**params, "allowedSessions": c["profile"].get("allowedSessions", base_sessions)}
-                r = backtester.run(candles, engine, strategies, p)
+                r = backtester.run(candles, engine, strategies, p, progress=_sub(ci + 1, c["name"]))
                 m = r.get("overall", {}) if r.get("ok") else {}
                 rows.append({
                     "id": c["id"], "name": c["name"], "source": c.get("source", "library"),

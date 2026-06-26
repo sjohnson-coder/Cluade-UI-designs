@@ -1,6 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, RefreshCcw, Gauge, FlaskConical, Sparkles, Rss, Play } from 'lucide-react';
-import { Card, Checklist, DataTable, MetricCard, PageHeader, SectionTitle, Tag, ToggleSwitch } from '../components/ui';
+import { Card, Checklist, DataTable, MetricCard, PageHeader, ProgressBar, SectionTitle, Tag, ToggleSwitch } from '../components/ui';
+async function runJob(start:()=>Promise<any>, onProgress:(pct:number,stage:string,eta:any)=>void):Promise<any>{
+  const s:any=await start();
+  if(s?.ok===false) return s;
+  if(!s?.jobId) return {ok:false,message:'Could not start the job.'};
+  for(let i=0;i<3000;i++){
+    await new Promise(r=>setTimeout(r,600));
+    const j:any=await api.jobStatus(s.jobId);
+    if(!j?.ok) return {ok:false,message:j?.message||'Job was lost.'};
+    onProgress(j.progress||0, j.stage||'', j.etaSeconds);
+    if(j.status==='done') return j.result||{ok:false,message:'Job finished with no result.'};
+    if(j.status==='error') return {ok:false,message:j.message||'Job failed.'};
+  }
+  return {ok:false,message:'Job timed out.'};
+}
+function JobProgress({prog}:{prog:any}){
+  if(!prog) return null;
+  const eta=prog.eta!=null?(prog.eta>60?`~${Math.ceil(prog.eta/60)} min left`:`~${prog.eta}s left`):'';
+  return <div style={{marginTop:10}}><ProgressBar value={prog.pct||0}/><p className="tiny muted" style={{marginTop:5,display:'flex',justifyContent:'space-between',gap:10}}><span>{prog.stage||'Working…'}</span><span>{prog.pct||0}% {eta}</span></p></div>;
+}
 import { BarDistribution, Donut, DrawdownChart, EquityCurve, ReturnsHeatmap, ScatterPerformance } from '../components/Charts';
 import { api, downloadExport } from '../lib/api';
 const money=(v:any,c='')=>`${c?c+' ':''}${Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
@@ -34,8 +53,9 @@ export default function Analytics(){
 function BacktestTab(){
   const [res,setRes]=useState<any>(null),[opt,setOpt]=useState<any>(null),[val,setVal]=useState<any>(null),[loading,setLoading]=useState(''),[msg,setMsg]=useState('');
   const [bars,setBars]=useState(4000),[spread,setSpread]=useState(0.20),[commission,setCommission]=useState(0.05),[apply,setApply]=useState(false);
-  const run=async()=>{setLoading('run');setMsg('');const r:any=await api.backtestRun({bars,spread,commission});setRes(r);setLoading('');if(!r?.ok)setMsg(r?.message||'Backtest failed.')};
-  const validate=async()=>{setLoading('val');setMsg('');const r:any=await api.backtestValidate({});setVal(r);if(r?.ok)setRes(r);setLoading('');if(!r?.ok)setMsg(r?.message||'Validation failed.')};
+  const [prog,setProg]=useState<any>(null);
+  const run=async()=>{setLoading('run');setMsg('');setProg({pct:0,stage:'Starting…'});const r:any=await runJob(()=>api.backtestRunAsync({bars,spread,commission}),(pct,stage,eta)=>setProg({pct,stage,eta}));setProg(null);setRes(r);setLoading('');if(!r?.ok)setMsg(r?.message||'Backtest failed.')};
+  const validate=async()=>{setLoading('val');setMsg('');setProg({pct:0,stage:'Starting…'});const r:any=await runJob(()=>api.backtestValidateAsync({}),(pct,stage,eta)=>setProg({pct,stage,eta}));setProg(null);if(r?.ok){setVal(r);setRes(r)}setLoading('');if(!r?.ok)setMsg(r?.message||'Validation failed.')};
   const optimize=async()=>{setLoading('opt');setMsg('');const r:any=await api.backtestOptimizeWeights({bars:Math.max(bars,5000),spread,commission,apply});setOpt(r);setLoading('');setMsg(r?.ok?(r.message||`Optimizer recommendation: ${r.recommendation}`):(r?.message||'Optimize failed'))};
   const applyVerdicts=async()=>{if(!res?.strategies)return;const r:any=await api.backtestApplyVerdicts({strategies:res.strategies});setMsg(r?.message||'Applied.')};
   const resetW=async()=>{const r:any=await api.backtestWeightsReset();setMsg(r?.message||'Reset to defaults.')};
@@ -55,6 +75,7 @@ function BacktestTab(){
         <button className="outline-button" onClick={optimize} disabled={loading==='opt'} style={{height:38}}>{loading==='opt'?'Optimizing…':'Optimize Weights'}</button>
         <button className="ghost-button" onClick={resetW} style={{height:38}}>Reset Weights</button>
       </div>
+      <JobProgress prog={prog}/>
       {msg&&<p className="muted tiny" style={{marginTop:8}}>{msg}</p>}
       {res?.note&&<p className="gold tiny" style={{marginTop:6}}>{res.note}</p>}
       {res?.ok&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles · costs spread {res.costs?.spreadPrice} + comm {res.costs?.commissionPrice} (set these to your broker's real XAUUSD costs)</p>}
@@ -70,9 +91,9 @@ function BacktestTab(){
   </div></div>;
 }
 function StrategyLabTab(){
-  const [res,setRes]=useState<any>(null),[loading,setLoading]=useState(false),[msg,setMsg]=useState(''),[installed,setInstalled]=useState<any>(null);
+  const [res,setRes]=useState<any>(null),[loading,setLoading]=useState(false),[msg,setMsg]=useState(''),[installed,setInstalled]=useState<any>(null),[prog,setProg]=useState<any>(null);
   useEffect(()=>{(async()=>{const s:any=await api.labStatus();if(s?.result)setRes(s.result);if(s?.installed)setInstalled(s.installed)})()},[]);
-  const run=async()=>{setLoading(true);setMsg('');const r:any=await api.labRun({});setRes(r);setLoading(false);if(!r?.ok)setMsg(r?.message||'Lab run failed.')};
+  const run=async()=>{setLoading(true);setMsg('');setProg({pct:0,stage:'Starting…'});const r:any=await runJob(()=>api.labRunAsync({}),(pct,stage,eta)=>setProg({pct,stage,eta}));setProg(null);setRes(r);setLoading(false);if(!r?.ok)setMsg(r?.message||'Lab run failed.')};
   const install=async(id:string,name:string)=>{const r:any=await api.labInstall(id);if(r?.ok){setInstalled(r.installed);const e=r.evidence;setMsg(`✓ Installed ${name}. ${e?`Evidence: ${e.expectancyR}R/trade · PF ${e.profitFactor} · ${e.oosConsistencyPct}% folds positive · ${e.trades} trades.`:''} ${r.thesis||''}`)}else setMsg(r?.message||'Install failed.')};
   const genAI=async()=>{setLoading(true);setMsg('');const r:any=await api.labGenerate({});setLoading(false);if(r?.ok){setMsg(`🤖 ${r.message}`);run()}else setMsg(r?.message||'AI generation failed. Configure it in Settings → AI Strategy Generator.')};
   const fetchFeed=async()=>{setLoading(true);setMsg('');const r:any=await api.labFetchFeed();setLoading(false);if(r?.ok){setMsg(`📡 ${r.message}`);run()}else setMsg(r?.message||'Feed fetch failed. Set a URL in Settings → Strategy Lab.')};
@@ -88,6 +109,7 @@ function StrategyLabTab(){
         {installed&&<span className="tiny muted">Active tuning: <strong>{installed.name}</strong> · shows in your Strategies page</span>}
       </div>
       {res?.span&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles</p>}
+      <JobProgress prog={prog}/>
       {msg&&<p className="gold tiny" style={{marginTop:6}}>{msg}</p>}
     </Card>
     {rec&&<Card className="span-2"><SectionTitle title="Recommended upgrade" right={<Tag color="green">Beats your current config</Tag>}/>

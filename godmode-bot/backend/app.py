@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import asyncio
 import time
+import threading
 import json
 import urllib.parse
 import urllib.request
@@ -231,7 +232,7 @@ def _default_settings() -> dict[str, Any]:
         "appearance": {"theme": "light", "accentColor": "gold", "density": "comfortable"},
         "trading": {"symbol": os.getenv("MT5_SYMBOL", "XAUUSD"), "timeframe": "M15", "orderType": "Market", "riskPerTrade": 0.5, "slippageTolerance": 0.5, "magicNumber": mt5_bridge.magic, "commentPrefix": mt5_bridge.comment_prefix, "autoRefreshData": True, "autoResumeOnStart": False, "allowedSessions": ["Asia", "London", "London / New York", "New York"], "tradeManagement": {"autoBreakEven": True, "breakEvenAtRR": 0.4, "autoTrailing": True, "trailStartRR": 0.5, "trailAtrMult": 1.0, "trailStructure": "M15", "fastFailEnabled": True, "fastFailLossR": -0.5, "fastFailNoProgressCandles": 3, "partialTakeProfit": True, "tpPushEnabled": True, "protectStartAtr": 0.4, "profitLockFraction": 0.35, "trailStartAtr": 0.7, "smartRecoveryRoom": True, "recoveryRoomAtr": 0.3}},
         "execution": {"dryRun": not mt5_bridge.live_enabled, "liveTradingEnabled": mt5_bridge.live_enabled, "autoTradingEnabled": mt5_bridge.auto_trading_enabled, "requireAiApproval": True, "manualExecutionEnabled": False},
-        "ai": {"strictnessMode": "balanced", "allowScoutEntries": True, "scoutConfidence": 72.0, "standardConfidence": 78.0, "sniperConfidence": 90.0, "minRiskReward": 1.5, "maxSpread": 0.40, "showBlockedReasons": True, "heartbeatEnabled": True, "firstEntryLotMode": "base_lot_only", "respectAllowedSessions": True},
+        "ai": {"strictnessMode": "balanced", "allowScoutEntries": True, "scoutConfidence": 72.0, "standardConfidence": 78.0, "sniperConfidence": 90.0, "minRiskReward": 1.5, "maxSpread": 0.40, "showBlockedReasons": True, "heartbeatEnabled": True, "firstEntryLotMode": "base_lot_only", "respectAllowedSessions": True, "rangeAwareness": True, "rangeFade": False, "rangeTopPos": 0.78, "rangeBottomPos": 0.22},
         # Automation discipline: stop revenge-stacking and run the AI recovery monitor.
         "automation": {
             "postLossCooldownMinutes": 10.0,     # forced reanalysis pause after any loss
@@ -2780,15 +2781,11 @@ def backtest_run(payload: dict[str, Any] = Body(default={})):
     return res
 
 
-@app.post("/api/backtest/validate")
-def backtest_validate(payload: dict[str, Any] = Body(default={})):
-    """One-click EDGE VALIDATION: replays the REAL decision engine over up to ~2 years of your
-    actual MT5 history with realistic Gold costs, then returns a plain-English GO / CAUTION /
-    NO-GO with a deploy checklist. This is the truth-teller to run BEFORE risking capital."""
+def _validate_impl(payload: dict[str, Any], progress: Any = None) -> dict[str, Any]:
     connected = bool(mt5_bridge.status().get("connected"))
     candles = _backtest_candles(int(payload.get("bars", 70000)))   # ~2 years of M15
     params = _backtest_params({"spread": 0.25, "commission": 0.07, "minSample": 40, "folds": 6, **payload})
-    res = backtester.run(candles, decision_engine, list(STRATEGIES_STATE.values()), params)
+    res = backtester.run(candles, decision_engine, list(STRATEGIES_STATE.values()), params, progress=progress)
     if not res.get("ok"):
         return res
     a = res.get("assessment", {}) or {}
@@ -2820,6 +2817,91 @@ def backtest_validate(payload: dict[str, Any] = Body(default={})):
     }
     res["dataSource"] = res["validation"]["dataSource"]
     return res
+
+
+@app.post("/api/backtest/validate")
+def backtest_validate(payload: dict[str, Any] = Body(default={})):
+    return _validate_impl(payload)
+
+
+# ── Background jobs (so long backtests run without freezing the page, with a progress bar) ──
+JOBS: dict[str, dict[str, Any]] = {}
+
+
+def _new_job(kind: str) -> str:
+    jid = f"{kind}-{int(time.time() * 1000)}"
+    JOBS[jid] = {"id": jid, "kind": kind, "status": "running", "progress": 0, "stage": "Starting…",
+                 "startedAt": time.time(), "result": None, "message": "", "etaSeconds": None}
+    for old in sorted(JOBS, key=lambda k: JOBS[k]["startedAt"])[:-20]:   # keep last 20
+        JOBS.pop(old, None)
+    return jid
+
+
+def _job_progress(jid: str):
+    def cb(frac: float, stage: str) -> None:
+        j = JOBS.get(jid)
+        if not j:
+            return
+        j["progress"] = int(max(0, min(100, frac * 100)))
+        j["stage"] = stage
+        el = time.time() - j["startedAt"]
+        j["etaSeconds"] = round(el * (1 - frac) / frac) if frac > 0.03 else None
+    return cb
+
+
+def _run_job(jid: str, fn) -> None:
+    def worker():
+        try:
+            res = fn(_job_progress(jid))
+            j = JOBS.get(jid)
+            if j:
+                j.update(status="done", progress=100, stage="Done", result=res, finishedAt=time.time(), etaSeconds=0)
+        except Exception as exc:
+            j = JOBS.get(jid)
+            if j:
+                j.update(status="error", message=str(exc), stage="Error")
+    threading.Thread(target=worker, daemon=True).start()
+
+
+@app.get("/api/jobs/{jid}")
+def job_status(jid: str):
+    j = JOBS.get(jid)
+    if not j:
+        return {"ok": False, "message": "Unknown or expired job."}
+    return {"ok": True, **{k: v for k, v in j.items() if k != "result"},
+            "result": j["result"] if j["status"] == "done" else None}
+
+
+@app.post("/api/backtest/validate-async")
+def backtest_validate_async(payload: dict[str, Any] = Body(default={})):
+    jid = _new_job("validate")
+    _run_job(jid, lambda prog: _validate_impl(payload, prog))
+    return {"ok": True, "jobId": jid}
+
+
+@app.post("/api/backtest/run-async")
+def backtest_run_async(payload: dict[str, Any] = Body(default={})):
+    jid = _new_job("backtest")
+    def fn(prog):
+        candles = _backtest_candles(int(payload.get("bars", 4000)))
+        r = backtester.run(candles, decision_engine, list(STRATEGIES_STATE.values()), _backtest_params(payload), progress=prog)
+        r["dataSource"] = "mt5_history" if mt5_bridge.status().get("connected") else "synthetic_demo"
+        if r.get("dataSource") == "synthetic_demo":
+            r["note"] = "Synthetic candles (MT5 not connected) — numbers are illustrative. Connect MT5 for a real edge measurement."
+        return r
+    _run_job(jid, fn)
+    return {"ok": True, "jobId": jid}
+
+
+@app.post("/api/lab/run-async")
+def lab_run_async(payload: dict[str, Any] = Body(default={})):
+    jid = _new_job("lab")
+    def fn(prog):
+        res = _run_strategy_lab(int(payload.get("bars", 60000)), progress=prog)
+        _alert_lab_recommendation(res)
+        return res
+    _run_job(jid, fn)
+    return {"ok": True, "jobId": jid}
 
 
 @app.post("/api/backtest/optimize-weights")
@@ -2867,7 +2949,7 @@ def _refresh_strategy_feed() -> int:
     return strategy_lab.add_candidates(res.get("candidates", [])) if res.get("ok") else 0
 
 
-def _run_strategy_lab(bars: int = 60000) -> dict[str, Any]:
+def _run_strategy_lab(bars: int = 60000, progress: Any = None) -> dict[str, Any]:
     """Back-/forward-test every candidate trading style + the live baseline over your history."""
     _refresh_strategy_feed()   # pull any trusted-feed candidates before testing
     connected = bool(mt5_bridge.status().get("connected"))
@@ -2877,7 +2959,7 @@ def _run_strategy_lab(bars: int = 60000) -> dict[str, Any]:
                                "improveMarginR": float(lab_cfg.get("improveMarginR", 0.05) or 0.05),
                                "dataSource": "mt5_history" if connected else "synthetic_demo"})
     baseline = decision_engine.strictness_dict()
-    res = strategy_lab.evaluate(candles, decision_engine, list(STRATEGIES_STATE.values()), backtester, baseline, params)
+    res = strategy_lab.evaluate(candles, decision_engine, list(STRATEGIES_STATE.values()), backtester, baseline, params, progress=progress)
     res["dataSource"] = params["dataSource"]
     LAB_STATE["lastRun"] = time.time()
     LAB_STATE["lastResult"] = res

@@ -184,11 +184,13 @@ def _verdict(m: dict[str, Any], min_sample: int) -> str:
 
 class CostAwareBacktester:
     def _collect(self, candles: list[dict[str, Any]], engine: Any, strategies: list[dict[str, Any]],
-                 p: dict[str, Any]) -> list[dict[str, Any]]:
+                 p: dict[str, Any], progress: Any = None) -> list[dict[str, Any]]:
         candles = sorted(candles, key=lambda c: int(c["time"]))
         for c in candles:  # normalise types
             for k in ("open", "high", "low", "close"):
                 c[k] = float(c[k])
+        if progress:
+            progress(0.02, f"Preparing {len(candles)} candles (EMAs + H1/H4/D1 resample)…")
         _attach_emas(candles)
         h1, h1ct = _resample(candles, 3600)
         h4, h4ct = _resample(candles, 14400)
@@ -203,7 +205,12 @@ class CostAwareBacktester:
         allowed = p.get("allowedSessions") or ["Asia", "London", "London / New York", "New York"]
         trades: list[dict[str, Any]] = []
         i = warmup
+        span = max(1, n - 1 - warmup)
+        step = max(1, span // 100)   # ~100 progress ticks across the replay
         while i < n - 1:
+            if progress and (i - warmup) % step == 0:
+                frac = 0.05 + 0.9 * (i - warmup) / span   # 5%..95% during the replay
+                progress(frac, f"Replaying bar {i - warmup:,} / {span:,} · {len(trades)} trades so far")
             t = int(candles[i]["time"])
             k1 = bisect.bisect_right(h1ct, t)
             k4 = bisect.bisect_right(h4ct, t)
@@ -238,16 +245,18 @@ class CostAwareBacktester:
         return trades
 
     def run(self, candles: list[dict[str, Any]], engine: Any, strategies: list[dict[str, Any]],
-            params: dict[str, Any] | None = None) -> dict[str, Any]:
+            params: dict[str, Any] | None = None, progress: Any = None) -> dict[str, Any]:
         p = params or {}
         if not candles or len(candles) < int(p.get("warmup", 250)) + 50:
             return {"ok": False, "message": "Not enough candles to backtest.", "candles": len(candles or [])}
         prior = dict(engine.factor_weights)  # don't let live learned weights leak into the test
         engine.reset_factor_weights()
         try:
-            trades = self._collect(candles, engine, strategies, p)
+            trades = self._collect(candles, engine, strategies, p, progress=progress)
         finally:
             engine.set_factor_weights(prior)
+        if progress:
+            progress(0.97, "Computing metrics, walk-forward folds & verdict…")
         min_sample = int(p.get("minSample", 20))
         folds = int(p.get("folds", 4))
         by_strat: dict[str, list[float]] = {}

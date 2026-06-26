@@ -238,7 +238,7 @@ def _htf_bias(h4_candles: list[dict[str, Any]] | None, d1_candles: list[dict[str
     }
 
 
-def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dict[str, Any]] | None = None, range_lookback: int = 32) -> dict[str, Any]:
     """Extract full institutional feature set from candles."""
     if not candles or len(candles) < 10:
         return {
@@ -258,6 +258,10 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
             "atrDistance50": 1.0,
             "atrDistance20": 0.5,
             "trendAligned": False,
+            "rangeHigh": 0.0,
+            "rangeLow": 0.0,
+            "rangePos": 0.5,
+            "rangeWidthAtr": 0.0,
             "confluenceCount": 0,
             "computedSide": "WAIT",
             "rsi14": 50.0,
@@ -294,6 +298,15 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
 
     atr_dist_50 = abs(price - ema50) / max(atr, 0.01)
     atr_dist_20 = abs(price - ema20) / max(atr, 0.01)   # distance from the pullback anchor
+
+    # Range geometry over the recent window: where does price sit between the range low/high?
+    # 0 = at the bottom, 1 = at the top. Used to avoid buying tops / selling bottoms in chop.
+    rl_n = min(int(range_lookback or 32), len(highs))
+    range_high = max(highs[-rl_n:]) if rl_n else price
+    range_low = min(lows[-rl_n:]) if rl_n else price
+    range_span = range_high - range_low
+    range_pos = (price - range_low) / range_span if range_span > 0 else 0.5
+    range_width_atr = range_span / max(atr, 0.01)
 
     # Direction from EMA stack
     bull_aligned = price > ema20 > ema50
@@ -507,6 +520,10 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
         "atrDistance50": round(atr_dist_50, 3),
         "atrDistance20": round(atr_dist_20, 3),
         "trendAligned": aligned_trend,
+        "rangeHigh": round(range_high, 2),
+        "rangeLow": round(range_low, 2),
+        "rangePos": round(range_pos, 3),
+        "rangeWidthAtr": round(range_width_atr, 2),
         "confluenceCount": confluence_count,
         "atr": round(atr, 3),
         "computedSide": computed_side,
@@ -569,6 +586,15 @@ class GoldDecisionEngine:
         # Choppy/range filter. Below `hard` the market is a tight range → no entries
         # (this is what stops the bot bleeding inside sideways chop).
         self.min_efficiency_ratio = 0.28
+        # Range awareness — in a sideways range (no confirmed trend), don't buy near the top or
+        # sell near the bottom. Today's lesson: the bot kept signalling BUYs at the range highs.
+        self.range_awareness = True
+        self.range_fade = False          # opt-in: FADE the extreme (sell tops / buy bottoms) instead of just skipping
+        self.range_top_pos = 0.78        # BUY blocked when price is >= this far up the range (0..1)
+        self.range_bottom_pos = 0.22     # SELL blocked when price is <= this far down the range
+        self.range_eff_max = 0.45        # only treat as a range when efficiency is below this (not trending)
+        self.range_min_atr = 1.8         # the range must be at least this many ATR wide to count
+        self.range_lookback = 32         # bars used to measure the range high/low
         self.calendar   = EconomicCalendar()
         self.macro      = MacroAwareness()
         self.volatility = GoldVolatilityRegime()
@@ -605,6 +631,10 @@ class GoldDecisionEngine:
         self.min_confluence      = int(payload.get("minConfluence",       p["conf"]))
         self.min_session_score   = float(payload.get("minSessionScore",   p["sess"]))
         self.min_efficiency_ratio = float(payload.get("minEfficiencyRatio", p.get("eff", 0.28)))
+        self.range_awareness = bool(payload.get("rangeAwareness", self.range_awareness))
+        self.range_fade = bool(payload.get("rangeFade", self.range_fade))
+        self.range_top_pos = float(payload.get("rangeTopPos", self.range_top_pos))
+        self.range_bottom_pos = float(payload.get("rangeBottomPos", self.range_bottom_pos))
         return self.strictness_dict()
 
     def strictness_dict(self) -> dict[str, Any]:
@@ -620,6 +650,10 @@ class GoldDecisionEngine:
             "minConfluence":     self.min_confluence,
             "minSessionScore":   self.min_session_score,
             "minEfficiencyRatio": self.min_efficiency_ratio,
+            "rangeAwareness": self.range_awareness,
+            "rangeFade": self.range_fade,
+            "rangeTopPos": self.range_top_pos,
+            "rangeBottomPos": self.range_bottom_pos,
         }
 
     def evaluate(
@@ -636,7 +670,7 @@ class GoldDecisionEngine:
         h4_candles = market.get("h4Candles") or []
         d1_candles = market.get("d1Candles") or []
 
-        features = _compute_candle_features(candles, h1_candles)
+        features = _compute_candle_features(candles, h1_candles, range_lookback=self.range_lookback)
         # True higher-timeframe (H4 + D1) institutional bias.
         htf = _htf_bias(h4_candles, d1_candles)
         features.update({
@@ -672,6 +706,16 @@ class GoldDecisionEngine:
         # Allow manual override only if explicitly provided and not WAIT
         manual_side = str(market.get("side", "WAIT")).upper()
         side = manual_side if manual_side not in {"WAIT", "—", ""} else computed_side
+
+        # ── Range awareness: don't buy the top / sell the bottom of a sideways range ──
+        rng = self._range_decision(side, features)
+        features["inRange"] = rng.get("inRange", False)
+        if rng.get("action") == "FADE":
+            side = computed_side = rng["side"]      # mean-revert the extreme (opt-in)
+            features["computedSide"] = side
+            features["rangeFaded"] = rng["reason"]
+        elif rng.get("action") == "BLOCK":
+            features["rangeBlock"] = rng["reason"]  # skip with a clear reason (handled in the gate)
 
         # Is the intended trade aligned with the higher-timeframe daily/H4 bias?
         features["htfBiasAligned"] = (
@@ -726,6 +770,8 @@ class GoldDecisionEngine:
 
         if side == "WAIT":
             hard_blocks.append("No clear directional structure — EMA stack not aligned on any timeframe. Wait for structure.")
+        if features.get("rangeBlock"):
+            hard_blocks.append(f"Range filter: {features['rangeBlock']}.")
         if calendar_status.get("isBlackout"):
             hard_blocks.append("High-impact news blackout — no entries allowed")
         if spread > self.max_spread:
@@ -1117,6 +1163,30 @@ class GoldDecisionEngine:
                 if f.name in self.factor_weights:
                     f.weight = self.factor_weights[f.name]
         return factors
+
+    def _range_decision(self, side: str, features: dict[str, Any]) -> dict[str, Any]:
+        """Range awareness. In a confirmed SIDEWAYS range (not a trend), buying the top or selling
+        the bottom is the worst entry. Returns NONE / BLOCK (skip) / FADE (trade the other way).
+        Never fires in a real trend — a trend pullback near the highs is a good buy, not a chase."""
+        if not getattr(self, "range_awareness", True) or side not in ("BUY", "SELL"):
+            return {"action": "NONE"}
+        pos = float(features.get("rangePos", 0.5))
+        width_atr = float(features.get("rangeWidthAtr", 0.0))
+        er = float(features.get("efficiencyRatio", 0.5))
+        # A range = LOW efficiency (not trending) + a meaningful width. Efficiency is the real
+        # trend/range test — a genuine efficient trend (er >= range_eff_max) is excluded here, so a
+        # clean trend pullback is never range-blocked; only low-efficiency chop at an extreme is.
+        in_range = er < self.range_eff_max and width_atr >= self.range_min_atr
+        if not in_range:
+            return {"action": "NONE", "inRange": False, "rangePos": round(pos, 2)}
+        fade = bool(getattr(self, "range_fade", False))
+        if side == "BUY" and pos >= self.range_top_pos:
+            return {"action": "FADE" if fade else "BLOCK", "side": "SELL", "inRange": True, "rangePos": round(pos, 2),
+                    "reason": f"price near the TOP of a sideways range ({pos*100:.0f}% up a {width_atr:.1f}-ATR range, efficiency {er:.2f}) — don't buy the top"}
+        if side == "SELL" and pos <= self.range_bottom_pos:
+            return {"action": "FADE" if fade else "BLOCK", "side": "BUY", "inRange": True, "rangePos": round(pos, 2),
+                    "reason": f"price near the BOTTOM of a sideways range ({pos*100:.0f}% up a {width_atr:.1f}-ATR range, efficiency {er:.2f}) — don't sell the bottom"}
+        return {"action": "NONE", "inRange": True, "rangePos": round(pos, 2)}
 
     def _structural_sl(self, side: str, entry: float, market: dict[str, Any], features: dict[str, Any], candles: list[dict[str, Any]]) -> float:
         atr  = features.get("atr") or float(market.get("atr14", 12.35) or 12.35)
