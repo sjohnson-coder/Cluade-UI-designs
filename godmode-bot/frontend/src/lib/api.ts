@@ -118,6 +118,7 @@ export const api = {
   labRun: (payload?: unknown) => request('/api/lab/run', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   labStatus: () => request('/api/lab/status', { ok: false }),
   labInstall: (id: string) => request('/api/lab/install', { ok: false }, { method: 'POST', body: JSON.stringify({ id }) }),
+  labUninstall: () => request('/api/lab/uninstall', { ok: false }, { method: 'POST', body: JSON.stringify({}) }),
   labGenerate: (payload?: unknown) => request('/api/lab/generate', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   labFetchFeed: () => request('/api/lab/fetch-feed', { ok: false }, { method: 'POST', body: JSON.stringify({}) }),
   journalDecisionsClear: () => request('/api/journal/decisions/clear', { ok: false }, { method: 'POST', body: JSON.stringify({}) }),

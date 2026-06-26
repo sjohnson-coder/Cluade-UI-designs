@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, FileText, RefreshCcw, Gauge, FlaskConical, Sparkles, Rss, Play } from 'lucide-react';
+import { Download, FileText, RefreshCcw, Gauge, FlaskConical, Sparkles, Rss, Play, RotateCcw } from 'lucide-react';
 import { Card, Checklist, DataTable, MetricCard, PageHeader, ProgressBar, SectionTitle, Tag, ToggleSwitch } from '../components/ui';
 async function runJob(start:()=>Promise<any>, onProgress:(pct:number,stage:string,eta:any)=>void):Promise<any>{
   const s:any=await start();
@@ -95,6 +95,7 @@ function StrategyLabTab(){
   useEffect(()=>{(async()=>{const s:any=await api.labStatus();if(s?.result)setRes(s.result);if(s?.installed)setInstalled(s.installed)})()},[]);
   const run=async()=>{setLoading(true);setMsg('');setProg({pct:0,stage:'Starting…'});const r:any=await runJob(()=>api.labRunAsync({}),(pct,stage,eta)=>setProg({pct,stage,eta}));setProg(null);setRes(r);setLoading(false);if(!r?.ok)setMsg(r?.message||'Lab run failed.')};
   const install=async(id:string,name:string)=>{const r:any=await api.labInstall(id);if(r?.ok){setInstalled(r.installed);const e=r.evidence;setMsg(`✓ Installed ${name}. ${e?`Evidence: ${e.expectancyR}R/trade · PF ${e.profitFactor} · ${e.oosConsistencyPct}% folds positive · ${e.trades} trades.`:''} ${r.thesis||''}`)}else setMsg(r?.message||'Install failed.')};
+  const uninstall=async()=>{const r:any=await api.labUninstall();if(r?.ok){setInstalled(null);setMsg(`↩ ${r.message}`)}else setMsg(r?.message||'Uninstall failed.')};
   const genAI=async()=>{setLoading(true);setMsg('');const r:any=await api.labGenerate({});setLoading(false);if(r?.ok){setMsg(`🤖 ${r.message}`);run()}else setMsg(r?.message||'AI generation failed. Configure it in Settings → AI Strategy Generator.')};
   const fetchFeed=async()=>{setLoading(true);setMsg('');const r:any=await api.labFetchFeed();setLoading(false);if(r?.ok){setMsg(`📡 ${r.message}`);run()}else setMsg(r?.message||'Feed fetch failed. Set a URL in Settings → Strategy Lab.')};
   const rec=res?.recommendation; const base=res?.baseline||{};
@@ -107,6 +108,7 @@ function StrategyLabTab(){
         <button className="outline-button" onClick={genAI} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Ask your configured Claude/ChatGPT to propose new candidate styles (Settings → AI Strategy Generator)"><Sparkles size={15}/> Generate with AI</button>
         <button className="outline-button" onClick={fetchFeed} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Pull candidate profiles from your trusted feed URL (Settings → Strategy Lab)"><Rss size={15}/> Fetch feed</button>
         {installed&&<span className="tiny muted">Active tuning: <strong>{installed.name}</strong> · shows in your Strategies page</span>}
+        {installed&&<button className="ghost-button" style={{height:34,display:'inline-flex',alignItems:'center',gap:6}} onClick={uninstall} title="Remove this tuning and restore the strictness you had before installing it"><RotateCcw size={14}/> Uninstall &amp; revert</button>}
       </div>
       {res?.span&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles</p>}
       <JobProgress prog={prog}/>
@@ -120,7 +122,7 @@ function StrategyLabTab(){
     </Card>}
     {res?.ok&&<Card className="span-2 fullscreen-card"><SectionTitle title="Candidates vs your current config — net of costs"/>
       <div style={{overflowX:'auto'}}><DataTable columns={['name','trades','expectancyR','vsBaseline','profitFactor','winRate','oos','install']} rows={rows.map((r:any)=>({_r:r,name:r.name,trades:r.trades,expectancyR:`${r.expectancyR}R`,vsBaseline:r._base?'—':`${Number(r.expectancyVsBaseline)>=0?'+':''}${r.expectancyVsBaseline}R`,profitFactor:r.profitFactor,winRate:`${r.winRate}%`,oos:`${r.oosConsistencyPct||0}%`,install:''}))}
-        renderCell={(row:any,c:string)=>c==='vsBaseline'&&!row._r._base?<span className={Number(row._r.expectancyVsBaseline)>=0?'positive':'negative'}>{row.vsBaseline}</span>:c==='install'?(row._r._base?<Tag color="blue">baseline</Tag>:(installed&&(installed.id===row._r.id||installed.strategyId===`lab-${row._r.id}`)?<Tag color="green">✓ installed</Tag>:<button className="ghost-button" style={{height:28}} onClick={()=>install(row._r.id,row._r.name)}>Install</button>)):c==='name'?<span><strong>{row.name}</strong>{row._r.thesis?<><br/><span className="tiny muted">{row._r.thesis}</span></>:null}</span>:row[c]}/></div>
+        renderCell={(row:any,c:string)=>c==='vsBaseline'&&!row._r._base?<span className={Number(row._r.expectancyVsBaseline)>=0?'positive':'negative'}>{row.vsBaseline}</span>:c==='install'?(row._r._base?<Tag color="blue">baseline</Tag>:(installed&&(installed.id===row._r.id||installed.strategyId===`lab-${row._r.id}`)?<span style={{display:'inline-flex',gap:6,alignItems:'center'}}><Tag color="green">✓ installed</Tag><button className="ghost-button" style={{height:28}} onClick={uninstall} title="Remove and restore your previous strictness">Uninstall</button></span>:<button className="ghost-button" style={{height:28}} onClick={()=>install(row._r.id,row._r.name)}>Install</button>)):c==='name'?<span><strong>{row.name}</strong>{row._r.thesis?<><br/><span className="tiny muted">{row._r.thesis}</span></>:null}</span>:row[c]}/></div>
     </Card>}
     {res&&!res.ok&&<Card className="span-2"><p className="muted">{res.message||'Run the lab to test candidate strategies against your history.'}</p></Card>}
   </div></div>;
