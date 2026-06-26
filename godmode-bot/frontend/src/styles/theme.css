@@ -163,7 +163,7 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .checklist-item{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border-soft)}
 .checklist-item:last-child{border-bottom:0}
 .checklist-item span{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere}
-.checklist-item strong{text-align:right;white-space:nowrap}
+.checklist-item strong{text-align:right;min-width:0;overflow-wrap:anywhere}
 
 .progress-track{height:7px;border-radius:var(--r-pill);background:var(--surface-muted);overflow:hidden}
 .progress-fill{height:100%;border-radius:var(--r-pill);background:linear-gradient(90deg,var(--green),#6ee7b7);transition:width var(--med)}
@@ -319,10 +319,17 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 @media(prefers-reduced-motion:reduce){*,.card,.elite-card:after,.timeline-step,.action-toast,.page{animation:none!important;transition:none!important}}
 
 /* ---------------- RESPONSIVE ---------------- */
+/* Laptop widths (≈1366–1700): let the top bar + page header WRAP instead of forcing a
+   horizontal scrollbar. Only wraps when the controls don't fit, so wide desktops are unaffected. */
+@media(max-width:1720px){
+  .topbar{flex-wrap:wrap;height:auto;min-height:var(--topbar-h)}
+  .page-header{flex-wrap:wrap}
+  .page-header>*:last-child{flex-wrap:wrap}
+}
 @media(max-width:1500px){
   .dashboard-top,.exact-top{grid-template-columns:1fr 1fr}
   .dashboard-top>.signal-card,.exact-top>.signal-card{grid-column:span 2}
-  .dashboard-main,.pixel-command-grid,.layout-right,.responsive-two,.analytics-layout,.risk-layout,.journal-layout{grid-template-columns:1fr}
+  .dashboard-main,.pixel-command-grid,.layout-right,.responsive-two,.analytics-layout,.risk-layout,.journal-layout{grid-template-columns:minmax(0,1fr)}
   .analytics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .side-panel-sticky{position:static}
   .grid-5,.top-kpis,.analytics-kpis,.journal-summary{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -444,11 +451,11 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   .tv-chart-wrap ~ .tv-signal-panel { display: none }
 }
 @media (max-width: 1100px) {
-  .risk-layout { grid-template-columns: 1fr }
-  .risk-metric-row,.risk-limits-grid { grid-template-columns: repeat(2,1fr) }
-  .risk-block { grid-template-columns: 1fr }
-  .analytics-kpi-row { grid-template-columns: repeat(2,1fr) }
-  .journal-layout { grid-template-columns: 1fr }
+  .risk-layout { grid-template-columns: minmax(0,1fr) }
+  .risk-metric-row,.risk-limits-grid { grid-template-columns: repeat(2,minmax(0,1fr)) }
+  .risk-block { grid-template-columns: minmax(0,1fr) }
+  .analytics-kpi-row { grid-template-columns: repeat(2,minmax(0,1fr)) }
+  .journal-layout { grid-template-columns: minmax(0,1fr) }
   .journal-list-card { height: auto; max-height: 400px }
 }
 @media (max-width: 760px) {
