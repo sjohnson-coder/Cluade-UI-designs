@@ -135,6 +135,12 @@ a{color:inherit}
 .input,select.input,textarea.input{width:100%;min-width:0;height:38px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--field);color:var(--text);padding:0 10px;outline:0;font-weight:600}
 .input:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-soft)}
 textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
+/* Inline search field (label + magnifier icon + input) — matches .input styling as one field */
+.search-compact{display:flex;align-items:center;gap:8px;height:38px;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--field);min-width:180px;align-self:end}
+.search-compact:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-soft)}
+.search-compact svg{color:var(--text-faint);flex-shrink:0}
+.search-compact .input,.search-compact input{border:0;background:transparent;height:auto;padding:0;flex:1;box-shadow:none;font-weight:600}
+.search-compact .input:focus,.search-compact input:focus{box-shadow:none}
 
 /* ---------------- GRID ---------------- */
 .grid{display:grid;gap:16px}
@@ -319,12 +325,27 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 @media(prefers-reduced-motion:reduce){*,.card,.elite-card:after,.timeline-step,.action-toast,.page{animation:none!important;transition:none!important}}
 
 /* ---------------- RESPONSIVE ---------------- */
-/* Laptop widths (≈1366–1700): let the top bar + page header WRAP instead of forcing a
-   horizontal scrollbar. Only wraps when the controls don't fit, so wide desktops are unaffected. */
+/* Laptop widths (≤1720, incl. zoomed-out): CONDENSE the top bar into one clean row instead of
+   wrapping or scrolling — drop the (non-functional) search field, compact the status chips, and
+   show the theme toggle as icons only. The page header still wraps its controls when needed. */
 @media(max-width:1720px){
-  .topbar{flex-wrap:wrap;height:auto;min-height:var(--topbar-h)}
+  .topbar{flex-wrap:nowrap;height:var(--topbar-h);gap:9px;padding:0 14px;overflow:hidden}
+  .topbar .search{display:none}
+  .status-chip{min-width:0;flex:0 1 auto;padding:0 10px;gap:6px}
+  .status-chip>div{min-width:0}
+  .status-chip>div>span{font-size:9px}
+  .status-chip>div>strong{font-size:11px;overflow:hidden;text-overflow:ellipsis}
+  .status-chip small{display:none}
+  .topbar-right{gap:7px}
+  .theme-toggle{padding:2px}
+  .theme-toggle button{padding:0 8px;font-size:0}
+  .theme-toggle button svg{margin:0}
   .page-header{flex-wrap:wrap}
   .page-header>*:last-child{flex-wrap:wrap}
+}
+/* Mid widths: also drop the lowest-priority chips so the essentials never crowd. */
+@media(max-width:1320px){
+  .status-chip.chip-secondary{display:none}
 }
 @media(max-width:1500px){
   .dashboard-top,.exact-top{grid-template-columns:1fr 1fr}

@@ -130,6 +130,8 @@ export const api = {
   backtestRunAsync: (payload?: unknown) => request('/api/backtest/run-async', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   labRunAsync: (payload?: unknown) => request('/api/lab/run-async', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   jobStatus: (jid: string) => request(`/api/jobs/${jid}`, { ok: false }),
+  jobCancel: (jid: string) => request(`/api/jobs/${jid}/cancel`, { ok: false }, { method: 'POST', body: JSON.stringify({}) }),
+  journalAddEntry: (entry: unknown) => request('/api/journal/entry', { ok: false }, { method: 'POST', body: JSON.stringify(entry) }),
   journalDecisions: (category?: string, limit = 250) => request(`/api/journal/decisions?category=${encodeURIComponent(category || 'all')}&limit=${limit}`, { ok: false, items: [], counts: {} }),
   labRun: (payload?: unknown) => request('/api/lab/run', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   labStatus: () => request('/api/lab/status', { ok: false }),

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { Plus, Search, X } from 'lucide-react';
 import { Card, Checklist, ConfidenceRing, DataTable, MetricCard, PageHeader, SectionTitle, SideBadge, Tag } from '../components/ui';
 import { MiniCandleBlock } from '../components/Charts';
 import { api } from '../lib/api';
@@ -7,15 +7,21 @@ import crownUrl from '../assets/godmode-crown.svg';
 const money=(v:any,c='')=>`${Number(v||0)>=0?'+':''}${c?c+' ':''}${Number(v||0).toLocaleString(undefined,{maximumFractionDigits:2})}`;
 export default function Journal(){
   const [entries,setEntries]=useState<any[]>([]),[selected,setSelected]=useState<any|null>(null),[query,setQuery]=useState(''),[outcome,setOutcome]=useState('ALL'),[strategy,setStrategy]=useState('ALL'),[symbol,setSymbol]=useState('ALL');
-  const [dateFrom,setDateFrom]=useState('');
-  const load=async()=>{const d=await api.journal(dateFrom||undefined); const arr=Array.isArray(d)?d:[]; setEntries(arr); setSelected((x:any)=>x||arr[0]||null)};
-  useEffect(()=>{load(); const id=setInterval(load,10000); return()=>clearInterval(id)},[dateFrom]);
+  const [dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState('');
+  const [showForm,setShowForm]=useState(false),[saving,setSaving]=useState(false),[toast,setToast]=useState('');
+  const blank={date:new Date().toISOString().slice(0,10),symbol:'XAUUSD',side:'BUY',outcome:'NOTE',pnl:'',strategy:'',session:'',lessons:'',improvement:'',notes:''};
+  const [form,setForm]=useState<any>(blank);
+  const load=async()=>{const d=await api.journal(dateFrom||undefined,dateTo||undefined); const arr=Array.isArray(d)?d:[]; setEntries(arr); setSelected((x:any)=>x||arr[0]||null)};
+  useEffect(()=>{load(); const id=setInterval(load,10000); return()=>clearInterval(id)},[dateFrom,dateTo]);
+  const saveEntry=async()=>{setSaving(true);const r:any=await api.journalAddEntry({...form,pnl:Number(form.pnl||0)});setSaving(false);if(r?.ok){setShowForm(false);setForm(blank);setToast('Journal entry saved.');await load();setTimeout(()=>setToast(''),2500)}else setToast(r?.message||'Could not save entry.')};
   const filtered=useMemo(()=>entries.filter(e=>(outcome==='ALL'||e.outcome===outcome)&&(strategy==='ALL'||String(e.strategy||'').includes(strategy))&&(symbol==='ALL'||String(e.symbol||'').includes(symbol))&&(query===''||JSON.stringify(e).toLowerCase().includes(query.toLowerCase()))),[entries,outcome,strategy,symbol,query]);
   const wins=entries.filter(e=>e.outcome==='WIN').length,total=entries.length,winRate=total?Math.round((wins/total)*1000)/10:0,net=entries.reduce((a,e)=>a+Number(e.pnl||e.pnlUsd||0),0);
   const current=selected||filtered[0]||{};
   return <div className="journal-page">
-    <PageHeader title="Journal" subtitle="Review, track, and optimize every trade. Build consistency through reflection." right={<button className="gold-button"><Plus size={14}/> New Journal Entry</button>}/>
-    <Card className="journal-filter-card"><div className="filter-row journal-filter"><label><span>Date Range</span><input className="input" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/></label><label><span>Outcome</span><select className="input" value={outcome} onChange={e=>setOutcome(e.target.value)}><option>ALL</option><option>WIN</option><option>LOSS</option></select></label><label><span>Strategy</span><select className="input" value={strategy} onChange={e=>setStrategy(e.target.value)}><option>ALL</option><option>London</option><option>Trend</option><option>Liquidity</option></select></label><label><span>Symbols</span><select className="input" value={symbol} onChange={e=>setSymbol(e.target.value)}><option>ALL</option><option>XAUUSD</option></select></label><label><span>Market Regime</span><select className="input"><option>All Market Regimes</option></select></label><button className="outline-button"><SlidersHorizontal size={14}/> More Filters</button><label className="search-compact"><Search size={14}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search journal entries..."/></label></div></Card>
+    <PageHeader title="Journal" subtitle="Review, track, and optimize every trade. Build consistency through reflection." right={<button className="gold-button" onClick={()=>setShowForm(true)}><Plus size={14}/> New Journal Entry</button>}/>
+    {toast&&<Card style={{marginBottom:16}}><strong className="positive">{toast}</strong></Card>}
+    {showForm&&<NewEntryForm form={form} setForm={setForm} onSave={saveEntry} onClose={()=>setShowForm(false)} saving={saving}/>}
+    <Card className="journal-filter-card"><div className="filter-row journal-filter"><label><span>Date From</span><input className="input" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/></label><label><span>Date To</span><input className="input" type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></label><label><span>Outcome</span><select className="input" value={outcome} onChange={e=>setOutcome(e.target.value)}><option>ALL</option><option>WIN</option><option>LOSS</option><option>NOTE</option></select></label><label><span>Strategy</span><select className="input" value={strategy} onChange={e=>setStrategy(e.target.value)}><option>ALL</option><option>London</option><option>Trend</option><option>Liquidity</option></select></label><label><span>Symbols</span><select className="input" value={symbol} onChange={e=>setSymbol(e.target.value)}><option>ALL</option><option>XAUUSD</option></select></label><label className="search-compact"><Search size={14}/><input className="input" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search journal entries..."/></label></div></Card>
     <div className="journal-summary"><MetricCard label="Total Trades" value={total}/><MetricCard label="Win Rate" value={`${winRate}%`}/><MetricCard label="Profit Factor" value="—"/><MetricCard label="Total PnL" value={money(net,current.currency||'')}/><MetricCard label="Avg R Multiple" value="—"/><MetricCard label="Best Trade" value={money(Math.max(0,...entries.map(e=>Number(e.pnl||e.pnlUsd||0))),current.currency||'')}/><MetricCard label="Worst Trade" value={money(Math.min(0,...entries.map(e=>Number(e.pnl||e.pnlUsd||0))),current.currency||'')}/></div>
     <div className="journal-layout">
       <Card className="journal-list-card"><div className="button-wrap space-between"><span className="muted tiny">Sort: Newest first</span><span className="muted tiny">{filtered.length} entries</span></div><div className="journal-list">{filtered.length?filtered.map((e,i)=><div className={`journal-item ${current===e?'active':''}`} onClick={()=>setSelected(e)} key={i}><MiniCandleBlock data={e.candles} side={e.direction||e.side}/><div><strong className="journal-symbol"><span className="journal-symbol-text">XAU</span> {e.symbol||'XAUUSD'}</strong><div className="tiny muted">{e.strategy||'GodMode Strategy'}</div><div className="button-wrap"><SideBadge side={e.direction||e.side||'BUY'}/><span className={Number(e.pnl||e.pnlUsd)>=0?'positive':'negative'}>{money(e.pnl||e.pnlUsd,e.currency||'')}</span></div></div><div className="journal-time"><span>{e.time||e.closeTime||'—'}</span><Tag color={e.outcome==='WIN'?'green':e.outcome==='LOSS'?'red':'gold'}>{e.outcome||'—'}</Tag></div></div>):<p className="muted">No bot-only journal entries yet. Journal populates from GodMode magic/comment trade history.</p>}</div></Card>
@@ -25,4 +31,24 @@ export default function Journal(){
       </div>
     </div>
   </div>
+}
+
+function NewEntryForm({form,setForm,onSave,onClose,saving}:{form:any;setForm:(f:any)=>void;onSave:()=>void;onClose:()=>void;saving:boolean}){
+  const set=(k:string)=>(e:any)=>setForm({...form,[k]:e.target.value});
+  return <Card className="journal-form-card" style={{marginBottom:16}}>
+    <div className="button-wrap space-between"><SectionTitle title="New Journal Entry"/><button className="ghost-button" onClick={onClose}><X size={14}/></button></div>
+    <div className="grid grid-4" style={{gap:12,marginTop:8}}>
+      <label className="form-row"><span>Date</span><input className="input" type="date" value={form.date} onChange={set('date')}/></label>
+      <label className="form-row"><span>Symbol</span><input className="input" value={form.symbol} onChange={set('symbol')}/></label>
+      <label className="form-row"><span>Side</span><select className="input" value={form.side} onChange={set('side')}><option>BUY</option><option>SELL</option><option>—</option></select></label>
+      <label className="form-row"><span>Outcome</span><select className="input" value={form.outcome} onChange={set('outcome')}><option>NOTE</option><option>WIN</option><option>LOSS</option><option>BREAK_EVEN</option></select></label>
+      <label className="form-row"><span>PnL (USD)</span><input className="input" type="number" step="0.01" value={form.pnl} onChange={set('pnl')} placeholder="0.00"/></label>
+      <label className="form-row"><span>Strategy</span><input className="input" value={form.strategy} onChange={set('strategy')} placeholder="e.g. HTF Trend"/></label>
+      <label className="form-row"><span>Session</span><input className="input" value={form.session} onChange={set('session')} placeholder="London / NY"/></label>
+    </div>
+    <label className="form-row" style={{marginTop:10}}><span>Lessons learned</span><textarea className="input" rows={2} value={form.lessons} onChange={set('lessons')} placeholder="What went right or wrong?"/></label>
+    <label className="form-row"><span>What I'll do differently</span><textarea className="input" rows={2} value={form.improvement} onChange={set('improvement')}/></label>
+    <label className="form-row"><span>Notes</span><textarea className="input" rows={2} value={form.notes} onChange={set('notes')}/></label>
+    <div className="button-wrap" style={{marginTop:12}}><button className="ghost-button" onClick={onClose}>Cancel</button><button className="gold-button" onClick={onSave} disabled={saving}><Plus size={14}/> {saving?'Saving…':'Save Entry'}</button></div>
+  </Card>;
 }

@@ -1,28 +1,45 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, RefreshCcw, Gauge, FlaskConical, Sparkles, Rss, Play, RotateCcw } from 'lucide-react';
 import { Card, Checklist, DataTable, MetricCard, PageHeader, ProgressBar, SectionTitle, Tag, ToggleSwitch } from '../components/ui';
-async function runJob(start:()=>Promise<any>, onProgress:(pct:number,stage:string,eta:any)=>void):Promise<any>{
-  const s:any=await start();
-  if(s?.ok===false) return s;
-  if(!s?.jobId) return {ok:false,message:'Could not start the job.'};
-  for(let i=0;i<3000;i++){
-    await new Promise(r=>setTimeout(r,600));
-    const j:any=await api.jobStatus(s.jobId);
-    if(!j?.ok) return {ok:false,message:j?.message||'Job was lost.'};
-    onProgress(j.progress||0, j.stage||'', j.etaSeconds);
-    if(j.status==='done') return j.result||{ok:false,message:'Job finished with no result.'};
-    if(j.status==='error') return {ok:false,message:j.message||'Job failed.'};
-  }
-  return {ok:false,message:'Job timed out.'};
-}
-function JobProgress({prog}:{prog:any}){
-  if(!prog) return null;
-  const eta=prog.eta!=null?(prog.eta>60?`~${Math.ceil(prog.eta/60)} min left`:`~${prog.eta}s left`):'';
-  return <div style={{marginTop:10}}><ProgressBar value={prog.pct||0}/><p className="tiny muted" style={{marginTop:5,display:'flex',justifyContent:'space-between',gap:10}}><span>{prog.stage||'Working…'}</span><span>{prog.pct||0}% {eta}</span></p></div>;
-}
 import { BarDistribution, Donut, DrawdownChart, EquityCurve, ReturnsHeatmap, ScatterPerformance } from '../components/Charts';
 import { api, downloadExport } from '../lib/api';
+import { jobStore, useJob, type JobState } from '../lib/jobStore';
+// Progress + Stop for a background job. Reads from the module-level store, so it keeps showing the
+// live run (and lets you Stop it) even after you switch tabs and come back.
+function JobBar({job,onStop,label}:{job:JobState;onStop:()=>void;label:string}){
+  if(!job.running && !job.error) return null;
+  if(job.error) return <p className="negative tiny" style={{marginTop:8}}>{label}: {job.error}</p>;
+  const eta=job.eta!=null?(job.eta>60?`~${Math.ceil(job.eta/60)} min left`:`~${job.eta}s left`):'';
+  return <div style={{marginTop:10}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:5,flexWrap:'wrap'}}>
+      <span className="tiny muted">{label} — running in the background · you can switch tabs/pages and it keeps going</span>
+      <button className="ghost-button" style={{height:28}} onClick={onStop}>■ Stop</button>
+    </div>
+    <ProgressBar value={job.pct||0}/>
+    <p className="tiny muted" style={{marginTop:5,display:'flex',justifyContent:'space-between',gap:10}}><span>{job.stage||'Working…'}</span><span>{job.pct||0}% {eta}</span></p>
+  </div>;
+}
 const money=(v:any,c='')=>`${c?c+' ':''}${Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+function Pagination({page,pages,setPage}:{page:number;pages:number;setPage:(n:number)=>void}){
+  if(pages<=1) return null;
+  return <div className="pagination" style={{marginTop:12,display:'flex',gap:6,alignItems:'center',justifyContent:'flex-end',flexWrap:'wrap'}}>
+    <button className="ghost-button" disabled={page<=0} onClick={()=>setPage(0)}>« First</button>
+    <button className="ghost-button" disabled={page<=0} onClick={()=>setPage(page-1)}>‹ Prev</button>
+    <span className="tiny muted">Page {page+1} of {pages}</span>
+    <button className="ghost-button" disabled={page>=pages-1} onClick={()=>setPage(page+1)}>Next ›</button>
+    <button className="ghost-button" disabled={page>=pages-1} onClick={()=>setPage(pages-1)}>Last »</button>
+  </div>;
+}
+function TradesTab({history}:{history:any[]}){
+  const per=15; const [page,setPage]=useState(0);
+  const pages=Math.max(1,Math.ceil(history.length/per));
+  const safe=Math.min(page,pages-1);
+  const rows=history.slice(safe*per,(safe+1)*per);
+  return <Card><SectionTitle title="Bot-only trade sample" right={<span className="tiny muted">{history.length} trades · showing {rows.length}</span>}/>
+    <div style={{overflowX:'auto'}}><DataTable columns={['symbol','direction','pnlUsd','closeTime','reason']} rows={rows}/></div>
+    <Pagination page={safe} pages={pages} setPage={setPage}/>
+  </Card>;
+}
 export default function Analytics(){
   const [data,setData]=useState<any>({kpis:{},history:[]}),[report,setReport]=useState<any|null>(null),[tab,setTab]=useState('Overview');
   const [dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState(''),[account,setAccount]=useState('All Accounts');
@@ -39,7 +56,7 @@ export default function Analytics(){
     <div className="top-kpis analytics-kpis"><MetricCard label="Net Profit" value={money(k.netProfit,currency)} delta={`${k.returnPct||0}%`}/><MetricCard label="Total Trades" value={history.length || k.totalTrades || 0} delta="bot only"/><MetricCard label="Win Rate" value={`${k.winRate||0}%`}/><MetricCard label="Profit Factor" value={k.profitFactor||0}/><MetricCard label="Expectancy" value={money(k.expectancy,currency)}/><MetricCard label="Max Drawdown" value={`${k.maxDrawdown||0}%`}/></div>
     {tab==='Overview'&&<AnalyticsOverview data={data} k={k} currency={currency} report={report} getReport={getReport}/>} 
     {tab==='Performance'&&<div className="analytics-layout"><div className="analytics-grid"><Card className="span-2"><SectionTitle title="Equity Curve"/><EquityCurve data={data.equityCurve||[]} height={300}/></Card><Card><SectionTitle title="Drawdown Curve"/><DrawdownChart data={data.drawdown||[]}/></Card><Card><SectionTitle title="Returns"/><ReturnsHeatmap data={data.returns||[]}/></Card><Card><SectionTitle title="Execution Quality"/><BarDistribution data={data.executionQuality||[]}/></Card></div></div>}
-    {tab==='Trades'&&<Card><SectionTitle title="Bot-only trade sample"/><DataTable columns={['symbol','direction','pnlUsd','closeTime','reason']} rows={history}/></Card>}
+    {tab==='Trades'&&<TradesTab history={history}/>}
     {tab==='Strategies'&&<div className="analytics-layout"><div className="analytics-grid"><Card><SectionTitle title="Top Strategies"/><DataTable columns={['Strategy','Net PnL','Win Rate','Trades']} rows={topRows}/></Card><Card><SectionTitle title="Expectancy vs Win Rate"/><ScatterPerformance data={data.expectancyScatter||[]}/></Card></div></div>}
     {tab==='Risk'&&<div className="analytics-layout"><div className="analytics-grid"><Card><SectionTitle title="Win Rate Breakdown"/><Donut value={Number(k.winRate||0)}/></Card><Card><SectionTitle title="Drawdown Curve"/><DrawdownChart data={data.drawdown||[]}/></Card><Card><SectionTitle title="Confidence vs Result"/><ScatterPerformance data={data.confidenceResult||[]}/></Card></div></div>}
     {tab==='Reports'&&<Card><SectionTitle title="Full Report" right={<button className="outline-button" onClick={getReport}><FileText size={14}/> View Full Report</button>}/>{report?<pre className="code-box">{JSON.stringify(report,null,2)}</pre>:<p className="muted">Press View Full Report to generate the backend/API report information.</p>}</Card>}
@@ -53,9 +70,12 @@ export default function Analytics(){
 function BacktestTab(){
   const [res,setRes]=useState<any>(null),[opt,setOpt]=useState<any>(null),[val,setVal]=useState<any>(null),[loading,setLoading]=useState(''),[msg,setMsg]=useState('');
   const [bars,setBars]=useState(4000),[spread,setSpread]=useState(0.20),[commission,setCommission]=useState(0.05),[apply,setApply]=useState(false);
-  const [prog,setProg]=useState<any>(null);
-  const run=async()=>{setLoading('run');setMsg('');setProg({pct:0,stage:'Starting…'});const r:any=await runJob(()=>api.backtestRunAsync({bars,spread,commission}),(pct,stage,eta)=>setProg({pct,stage,eta}));setProg(null);setRes(r);setLoading('');if(!r?.ok)setMsg(r?.message||'Backtest failed.')};
-  const validate=async()=>{setLoading('val');setMsg('');setProg({pct:0,stage:'Starting…'});const r:any=await runJob(()=>api.backtestValidateAsync({}),(pct,stage,eta)=>setProg({pct,stage,eta}));setProg(null);if(r?.ok){setVal(r);setRes(r)}setLoading('');if(!r?.ok)setMsg(r?.message||'Validation failed.')};
+  const runJ=useJob('backtest'), valJ=useJob('validate');
+  // Capture job results into the view when they finish (survives tab switches via the store).
+  useEffect(()=>{const r=runJ.result;if(r){setRes(r);if(r.ok===false)setMsg(r.message||'Backtest failed.')}},[runJ.result]);
+  useEffect(()=>{const r=valJ.result;if(r){if(r.ok){setVal(r);setRes(r)}else setMsg(r.message||'Validation failed.')}},[valJ.result]);
+  const run=()=>{setMsg('');jobStore.start('backtest',()=>api.backtestRunAsync({bars,spread,commission}))};
+  const validate=()=>{setMsg('');jobStore.start('validate',()=>api.backtestValidateAsync({}))};
   const optimize=async()=>{setLoading('opt');setMsg('');const r:any=await api.backtestOptimizeWeights({bars:Math.max(bars,5000),spread,commission,apply});setOpt(r);setLoading('');setMsg(r?.ok?(r.message||`Optimizer recommendation: ${r.recommendation}`):(r?.message||'Optimize failed'))};
   const applyVerdicts=async()=>{if(!res?.strategies)return;const r:any=await api.backtestApplyVerdicts({strategies:res.strategies});setMsg(r?.message||'Applied.')};
   const resetW=async()=>{const r:any=await api.backtestWeightsReset();setMsg(r?.message||'Reset to defaults.')};
@@ -66,8 +86,8 @@ function BacktestTab(){
         <div style={{display:'flex',flexDirection:'column',gap:4,width:120}}><span className="tiny muted">M15 bars</span><input className="input" type="number" value={bars} onChange={e=>setBars(Number(e.target.value))}/></div>
         <div style={{display:'flex',flexDirection:'column',gap:4,width:120}}><span className="tiny muted">Spread (USD)</span><input className="input" type="number" step="0.01" value={spread} onChange={e=>setSpread(Number(e.target.value))}/></div>
         <div style={{display:'flex',flexDirection:'column',gap:4,width:130}}><span className="tiny muted">Commission (USD)</span><input className="input" type="number" step="0.01" value={commission} onChange={e=>setCommission(Number(e.target.value))}/></div>
-        <button className="gold-button" onClick={run} disabled={loading==='run'} style={{height:38}}>{loading==='run'?'Running…':'Run Backtest'}</button>
-        <button className="gold-button" onClick={validate} disabled={loading==='val'} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Replays the real engine over ~2 years of your MT5 history and gives a GO / CAUTION / NO-GO">{loading==='val'?'Validating…':<><Gauge size={15}/> Validate My Edge</>}</button>
+        <button className="gold-button" onClick={run} disabled={runJ.running} style={{height:38}}>{runJ.running?'Running…':'Run Backtest'}</button>
+        <button className="gold-button" onClick={validate} disabled={valJ.running} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Replays the real engine over ~2 years of your MT5 history and gives a GO / CAUTION / NO-GO">{valJ.running?'Validating…':<><Gauge size={15}/> Validate My Edge</>}</button>
       </div>
       <p className="tiny muted" style={{marginTop:6}}>“Validate My Edge” pulls up to ~2 years of your real MT5 M15 history and returns a plain-English GO / CAUTION / NO-GO. Scroll your MT5 chart far back first so the terminal caches the history. Connect MT5 for a real verdict (otherwise it runs on synthetic data).</p>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'center',marginTop:12}}>
@@ -75,7 +95,8 @@ function BacktestTab(){
         <button className="outline-button" onClick={optimize} disabled={loading==='opt'} style={{height:38}}>{loading==='opt'?'Optimizing…':'Optimize Weights'}</button>
         <button className="ghost-button" onClick={resetW} style={{height:38}}>Reset Weights</button>
       </div>
-      <JobProgress prog={prog}/>
+      <JobBar job={runJ} onStop={()=>jobStore.stop('backtest')} label="Backtest"/>
+      <JobBar job={valJ} onStop={()=>jobStore.stop('validate')} label="Validate My Edge"/>
       {msg&&<p className="muted tiny" style={{marginTop:8}}>{msg}</p>}
       {res?.note&&<p className="gold tiny" style={{marginTop:6}}>{res.note}</p>}
       {res?.ok&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles · costs spread {res.costs?.spreadPrice} + comm {res.costs?.commissionPrice} (set these to your broker's real XAUUSD costs)</p>}
@@ -91,9 +112,11 @@ function BacktestTab(){
   </div></div>;
 }
 function StrategyLabTab(){
-  const [res,setRes]=useState<any>(null),[loading,setLoading]=useState(false),[msg,setMsg]=useState(''),[installed,setInstalled]=useState<any>(null),[prog,setProg]=useState<any>(null);
+  const [res,setRes]=useState<any>(null),[loading,setLoading]=useState(false),[msg,setMsg]=useState(''),[installed,setInstalled]=useState<any>(null);
+  const labJ=useJob('lab');
   useEffect(()=>{(async()=>{const s:any=await api.labStatus();if(s?.result)setRes(s.result);if(s?.installed)setInstalled(s.installed)})()},[]);
-  const run=async()=>{setLoading(true);setMsg('');setProg({pct:0,stage:'Starting…'});const r:any=await runJob(()=>api.labRunAsync({}),(pct,stage,eta)=>setProg({pct,stage,eta}));setProg(null);setRes(r);setLoading(false);if(!r?.ok)setMsg(r?.message||'Lab run failed.')};
+  useEffect(()=>{const r=labJ.result;if(r){setRes(r);if(r.ok===false)setMsg(r.message||'Lab run failed.')}},[labJ.result]);
+  const run=()=>{setMsg('');jobStore.start('lab',()=>api.labRunAsync({}))};
   const install=async(id:string,name:string)=>{const r:any=await api.labInstall(id);if(r?.ok){setInstalled(r.installed);const e=r.evidence;setMsg(`✓ Installed ${name}. ${e?`Evidence: ${e.expectancyR}R/trade · PF ${e.profitFactor} · ${e.oosConsistencyPct}% folds positive · ${e.trades} trades.`:''} ${r.thesis||''}`)}else setMsg(r?.message||'Install failed.')};
   const uninstall=async()=>{const r:any=await api.labUninstall();if(r?.ok){setInstalled(null);setMsg(`↩ ${r.message}`)}else setMsg(r?.message||'Uninstall failed.')};
   const genAI=async()=>{setLoading(true);setMsg('');const r:any=await api.labGenerate({});setLoading(false);if(r?.ok){setMsg(`🤖 ${r.message}`);run()}else setMsg(r?.message||'AI generation failed. Configure it in Settings → AI Strategy Generator.')};
@@ -104,14 +127,14 @@ function StrategyLabTab(){
     <Card className="span-2"><SectionTitle title="AI Strategy Lab" right={<Tag color="purple">Tests candidate styles on YOUR data</Tag>}/>
       <p className="tiny muted">The agent back- and forward-tests a library of candidate trading STYLES against your own MT5 history and head-to-head with your live config. It only recommends an upgrade that genuinely beats your current setup out-of-sample — and nothing is applied until you click Install. Connect MT5 for a real verdict (otherwise it runs on synthetic data).</p>
       <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',marginTop:10}}>
-        <button className="gold-button" onClick={run} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}}>{loading?'Working…':<><FlaskConical size={15}/> Run Strategy Lab</>}</button>
-        <button className="outline-button" onClick={genAI} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Ask your configured Claude/ChatGPT to propose new candidate styles (Settings → AI Strategy Generator)"><Sparkles size={15}/> Generate with AI</button>
-        <button className="outline-button" onClick={fetchFeed} disabled={!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Pull candidate profiles from your trusted feed URL (Settings → Strategy Lab)"><Rss size={15}/> Fetch feed</button>
+        <button className="gold-button" onClick={run} disabled={labJ.running||!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}}>{labJ.running?'Working…':<><FlaskConical size={15}/> Run Strategy Lab</>}</button>
+        <button className="outline-button" onClick={genAI} disabled={labJ.running||!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Ask your configured Claude/ChatGPT to propose new candidate styles (Settings → AI Strategy Generator)"><Sparkles size={15}/> Generate with AI</button>
+        <button className="outline-button" onClick={fetchFeed} disabled={labJ.running||!!loading} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Pull candidate profiles from your trusted feed URL (Settings → Strategy Lab)"><Rss size={15}/> Fetch feed</button>
         {installed&&<span className="tiny muted">Installed: <strong>{installed.name}</strong> · competes in your rotation with its own gates (your global strictness is untouched)</span>}
         {installed&&<button className="ghost-button" style={{height:34,display:'inline-flex',alignItems:'center',gap:6}} onClick={uninstall} title="Remove this tuning and restore the strictness you had before installing it"><RotateCcw size={14}/> Uninstall &amp; revert</button>}
       </div>
       {res?.span&&<p className="muted tiny" style={{marginTop:6}}>Source: <strong>{res.dataSource}</strong> · {res.span} · {res.candles} candles</p>}
-      <JobProgress prog={prog}/>
+      <JobBar job={labJ} onStop={()=>jobStore.stop('lab')} label="Strategy Lab"/>
       {msg&&<p className="gold tiny" style={{marginTop:6}}>{msg}</p>}
     </Card>
     {rec&&<Card className="span-2"><SectionTitle title="Recommended upgrade" right={<Tag color="green">Beats your current config</Tag>}/>

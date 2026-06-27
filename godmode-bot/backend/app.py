@@ -151,6 +151,18 @@ DECISION_JOURNAL_FILE = DATA_DIR / "decision_journal.jsonl"
 DECISION_JOURNAL: list[dict[str, Any]] = []
 _LAST_ENTRY_SIG: dict[str, Any] = {"sig": None}
 
+# Manual journal entries the user writes (reflections / lessons), separate from auto bot-trade entries.
+MANUAL_JOURNAL_FILE = DATA_DIR / "manual_journal.jsonl"
+MANUAL_JOURNAL: list[dict[str, Any]] = []
+try:
+    if MANUAL_JOURNAL_FILE.exists():
+        for _line in MANUAL_JOURNAL_FILE.read_text(encoding="utf-8").splitlines():
+            _line = _line.strip()
+            if _line:
+                MANUAL_JOURNAL.append(json.loads(_line))
+except Exception:
+    MANUAL_JOURNAL = []
+
 def _journal_record(category: str, **fields: Any) -> dict[str, Any]:
     evt = {"id": int(time.time() * 1000000) % 1_000_000_000,
            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1887,9 +1899,37 @@ def _live_analytics(date_from: str | None = None, date_to: str | None = None) ->
         "account": account_data,
     }
 
+def _manual_to_entry(m: dict[str, Any]) -> dict[str, Any]:
+    """Map a user-written manual entry onto the journal-entry shape the UI renders."""
+    pnl = float(m.get("pnl", 0) or 0)
+    side = str(m.get("side") or m.get("direction") or "—").upper()
+    return {
+        "manual": True, "id": m.get("id"), "symbol": m.get("symbol") or "XAUUSD",
+        "direction": side, "side": side, "outcome": m.get("outcome") or ("WIN" if pnl > 0 else "LOSS" if pnl < 0 else "BREAK_EVEN"),
+        "pnl": pnl, "pnlUsd": pnl, "time": m.get("time") or m.get("date") or "", "date": str(m.get("date") or m.get("time") or "")[:10],
+        "strategy": m.get("strategy") or "Manual note", "session": m.get("session") or "—",
+        "marketRegime": m.get("marketRegime") or "Manual entry", "confidence": m.get("confidence", 0),
+        "entryPrice": m.get("entryPrice") or "—", "exitPrice": m.get("exitPrice") or "—",
+        "sl": m.get("sl") or "—", "tp": m.get("tp") or "—",
+        "lessons": m.get("lessons") or "", "improvement": m.get("improvement") or "",
+        "aiNotes": m.get("notes") or m.get("aiNotes") or "", "aiScore": "—",
+        "tags": (m.get("tags") or ["manual"]), "candles": [], "currency": m.get("currency", ""),
+    }
+
+
+def _merge_manual_journal(entries: list[dict[str, Any]], date_from: str | None, date_to: str | None) -> list[dict[str, Any]]:
+    out = list(entries) + [_manual_to_entry(m) for m in MANUAL_JOURNAL]
+    if date_from:
+        out = [e for e in out if str(e.get("date", "")) >= date_from]
+    if date_to:
+        out = [e for e in out if str(e.get("date", "")) <= date_to]
+    out.sort(key=lambda e: str(e.get("time") or e.get("date") or ""), reverse=True)
+    return out
+
+
 def _live_journal(date_from: str | None = None, date_to: str | None = None) -> list[dict[str, Any]]:
     if not mt5_bridge.status().get("connected") and _demo_enabled():
-        return demo_data.journal(date_from, date_to)
+        return _merge_manual_journal(demo_data.journal(date_from, date_to), date_from, date_to)
     raw = _enrich_history(_merge_recent_closed(mt5_bridge.closed_bot_trades(days=90)))
     entries = []
     for t in raw:
@@ -1932,9 +1972,7 @@ def _live_journal(date_from: str | None = None, date_to: str | None = None) -> l
             "candles": [],
             "currency": t.get("currency", ""),
         })
-    if date_from:
-        entries = [e for e in entries if str(e.get("date", "")) >= date_from]
-    return entries
+    return _merge_manual_journal(entries, date_from, date_to)
 
 def _strategies_with_live_stats() -> list[dict[str, Any]]:
     """Catalog strategies enriched with LIVE win-rate / sample size computed from the
@@ -2238,6 +2276,37 @@ def analytics(date_from: str | None = None, date_to: str | None = None):
 @app.get("/api/journal")
 def journal(date_from: str | None = None, date_to: str | None = None):
     return _live_journal(date_from, date_to)
+
+
+@app.post("/api/journal/entry")
+def journal_add_entry(payload: dict[str, Any] = Body(default={})):
+    """Add a manual journal entry (a reflection / lesson the user writes). Persisted to disk so it
+    survives restarts and shows alongside the bot's auto trade-journal entries."""
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    entry = {
+        "id": f"man-{int(time.time()*1000)}",
+        "date": str(payload.get("date") or now[:10]),
+        "time": str(payload.get("date") or now[:10]) + " " + now[11:19] + " UTC",
+        "symbol": str(payload.get("symbol") or "XAUUSD")[:20],
+        "side": str(payload.get("side") or "—")[:8],
+        "outcome": str(payload.get("outcome") or "NOTE")[:16],
+        "pnl": float(payload.get("pnl", 0) or 0),
+        "strategy": str(payload.get("strategy") or "Manual note")[:80],
+        "session": str(payload.get("session") or "—")[:40],
+        "confidence": float(payload.get("confidence", 0) or 0),
+        "lessons": str(payload.get("lessons") or "")[:2000],
+        "improvement": str(payload.get("improvement") or "")[:2000],
+        "notes": str(payload.get("notes") or "")[:2000],
+        "tags": [str(t)[:24] for t in (payload.get("tags") or ["manual"])][:8],
+        "createdAt": now,
+    }
+    MANUAL_JOURNAL.append(entry)
+    try:
+        with MANUAL_JOURNAL_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        return {"ok": False, "message": f"Could not save: {exc}"}
+    return {"ok": True, "message": "Journal entry saved.", "entry": _manual_to_entry(entry)}
 
 
 @app.get("/api/journal/decisions")
@@ -2937,11 +3006,17 @@ def _new_job(kind: str) -> str:
     return jid
 
 
+class _JobCancelled(Exception):
+    """Raised inside a worker's progress callback when the user clicks Stop."""
+
+
 def _job_progress(jid: str):
     def cb(frac: float, stage: str) -> None:
         j = JOBS.get(jid)
         if not j:
             return
+        if j.get("cancelRequested"):
+            raise _JobCancelled()   # checked on every progress tick → Stop takes effect within ~1 step
         j["progress"] = int(max(0, min(100, frac * 100)))
         j["stage"] = stage
         el = time.time() - j["startedAt"]
@@ -2956,6 +3031,10 @@ def _run_job(jid: str, fn) -> None:
             j = JOBS.get(jid)
             if j:
                 j.update(status="done", progress=100, stage="Done", result=res, finishedAt=time.time(), etaSeconds=0)
+        except _JobCancelled:
+            j = JOBS.get(jid)
+            if j:
+                j.update(status="cancelled", stage="Stopped by you", message="Stopped by user.", finishedAt=time.time(), etaSeconds=0)
         except Exception as exc:
             j = JOBS.get(jid)
             if j:
@@ -2970,6 +3049,18 @@ def job_status(jid: str):
         return {"ok": False, "message": "Unknown or expired job."}
     return {"ok": True, **{k: v for k, v in j.items() if k != "result"},
             "result": j["result"] if j["status"] == "done" else None}
+
+
+@app.post("/api/jobs/{jid}/cancel")
+def job_cancel(jid: str):
+    """Request a running job to stop. The worker's next progress tick raises and ends it cleanly."""
+    j = JOBS.get(jid)
+    if not j:
+        return {"ok": False, "message": "Unknown or expired job."}
+    if j.get("status") == "running":
+        j["cancelRequested"] = True
+        j["stage"] = "Stopping…"
+    return {"ok": True, "status": j.get("status")}
 
 
 @app.post("/api/backtest/validate-async")

@@ -52,8 +52,8 @@ export function AppShell({ current, onNavigate, children }: { current:string; on
           <StatusChip label="Live Connection" value={connected ? (isDemo ? 'DEMO' : 'LIVE') : 'STANDBY'} tone={connected ? 'green' : 'gold'}/>
           <StatusChip label="MT5" value={connected ? (isDemo ? 'Demo Mode' : 'Connected') : 'Waiting'} tone={connected ? 'green' : 'red'} dropdown/>
           <StatusChip label="Market" value={marketOpen ? 'OPEN' : 'CLOSED'} tone={marketOpen ? 'green' : 'red'} title={marketStatus}/>
-          <StatusChip label="Market Session" value={session} tone="gold" dropdown/>
-          {spread !== null && <StatusChip label="XAUUSD Spread" value={spread.toFixed(2)} tone={spread < 0.35 ? 'green' : 'red'}/>}
+          <StatusChip label="Market Session" value={session} tone="gold" dropdown secondary/>
+          {spread !== null && <StatusChip label="XAUUSD Spread" value={spread.toFixed(2)} tone={spread < 0.35 ? 'green' : 'red'} secondary/>}
           <div className="search"><Search size={15}/><input placeholder="Search markets, pairs, strategies..."/></div>
           <div className="topbar-right">
             <div className="theme-toggle" data-sound="toggle" role="group" aria-label="Theme mode">
@@ -75,6 +75,6 @@ export function AppShell({ current, onNavigate, children }: { current:string; on
   </div>
 }
 
-function StatusChip({ label, value, tone='green', dropdown=false, title }: { label:string; value:string; tone?:'green'|'red'|'gold'; dropdown?: boolean; title?: string }) {
-  return <div className="status-chip" title={title}><span className={`live-dot ${tone==='red'?'red':tone==='gold'?'gold':''}`}/><div><span>{label}</span><strong>{value}</strong></div>{dropdown ? <ChevronDown size={13} color="var(--text-muted)"/> : <small>{(value==='LIVE'||value==='DEMO')?value:''}</small>}</div>
+function StatusChip({ label, value, tone='green', dropdown=false, title, secondary=false }: { label:string; value:string; tone?:'green'|'red'|'gold'; dropdown?: boolean; title?: string; secondary?: boolean }) {
+  return <div className={`status-chip${secondary?' chip-secondary':''}`} title={title}><span className={`live-dot ${tone==='red'?'red':tone==='gold'?'gold':''}`}/><div><span>{label}</span><strong>{value}</strong></div>{dropdown ? <ChevronDown size={13} color="var(--text-muted)"/> : <small>{(value==='LIVE'||value==='DEMO')?value:''}</small>}</div>
 }
