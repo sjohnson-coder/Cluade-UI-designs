@@ -1,9 +1,25 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8000');
 const GODMODE_API_KEY = import.meta.env.VITE_GODMODE_API_KEY || '';
 
+// Runtime API key (set in Settings → Security, stored in this browser). Used to authenticate the UI
+// when the server is exposed for mobile/remote access (server: set GODMODE_API_KEY to the same value).
+export const apiKey = {
+  get(): string {
+    try { return (typeof localStorage !== 'undefined' && localStorage.getItem('godmode_api_key')) || GODMODE_API_KEY; }
+    catch { return GODMODE_API_KEY; }
+  },
+  set(k: string) {
+    try {
+      if (k) localStorage.setItem('godmode_api_key', k);
+      else localStorage.removeItem('godmode_api_key');
+    } catch { /* ignore */ }
+  },
+};
+
 function headers(extra: Record<string, string> = {}) {
   const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra };
-  if (GODMODE_API_KEY) h['X-GodMode-Key'] = GODMODE_API_KEY;
+  const k = apiKey.get();
+  if (k) h['X-GodMode-Key'] = k;
   return h;
 }
 
