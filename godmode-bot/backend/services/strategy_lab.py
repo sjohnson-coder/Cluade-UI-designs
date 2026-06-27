@@ -42,6 +42,13 @@ CANDIDATE_LIBRARY: list[dict[str, Any]] = [
     {"id": "balanced_plus", "name": "Balanced+", "source": "library",
      "thesis": "Your balanced default with a slightly higher R target — a gentle, low-risk tweak.",
      "profile": {"strictnessMode": "balanced", "minRiskReward": 1.5}},
+    {"id": "prime_quality", "name": "Prime Quality (cost-aware)", "source": "library",
+     "thesis": "Concentrates on the few highest edge-to-cost setups: London/NY only, strict chop "
+               "rejection, high confluence, and a tight spread cap so trading costs can't eat the edge. "
+               "Stacks the two configs that scored best on your real history — meant to beat the cost drag.",
+     "profile": {"strictnessMode": "strict", "minEfficiencyRatio": 0.48, "minConfluence": 5,
+                 "minRiskReward": 1.7, "standardConfidence": 80, "allowScoutEntries": False,
+                 "maxSpread": 0.30, "allowedSessions": ["London", "London / New York", "New York"]}},
 ]
 
 
