@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
@@ -55,6 +56,10 @@ class MT5Bridge:
         # Connection cache to avoid hammering mt5.initialize()
         self._init_ok: bool = False
         self._init_detail: str = ""
+        # Market open/closed detection — differential tick-staleness (timezone-safe): we watch
+        # whether the broker's last-tick TIME keeps advancing, not its absolute value.
+        self._last_tick_value: float = 0.0
+        self._last_tick_change: float = 0.0
         self._init_at: float = 0.0
         self._init_ttl: float = 10.0  # re-check every 10 seconds
 
@@ -370,6 +375,46 @@ class MT5Bridge:
             "sparkline": [],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+    def _schedule_open(self) -> tuple[bool, str]:
+        """Deterministic, timezone-safe WEEKEND schedule for spot gold / FX (UTC). Spot gold trades
+        ~24/5, so the unambiguous 'closed for the day/week' window is the weekend. Intraday halts and
+        the brief daily maintenance break are detected by live tick-staleness instead (broker-exact)."""
+        now = datetime.now(timezone.utc)
+        wd, hour = now.weekday(), now.hour  # Mon=0 .. Sun=6
+        if wd == 5:
+            return False, "Weekend — market reopens Sunday ~22:00 UTC"
+        if wd == 6 and hour < 22:
+            return False, "Weekend — market reopens Sunday ~22:00 UTC"
+        if wd == 4 and hour >= 21:
+            return False, "Weekend close — market closed Friday 21:00 UTC"
+        return True, "Open"
+
+    def market_open(self) -> dict[str, Any]:
+        """Is the symbol's market open? The UTC weekend schedule is authoritative for the weekend;
+        when connected, live tick-staleness (no new tick for 5+ minutes) additionally catches
+        intraday halts and the daily break. Returns {open, reason, source}."""
+        sched_open, sched_reason = self._schedule_open()
+        ok, _ = self._ensure_initialized()
+        if not ok or mt5 is None:
+            return {"open": sched_open, "reason": sched_reason, "source": "schedule"}
+        if not sched_open:
+            return {"open": False, "reason": sched_reason, "source": "schedule"}
+        try:
+            tick = mt5.symbol_info_tick(self.symbol)
+            t = float(getattr(tick, "time", 0) or 0) if tick else 0.0
+            now = time.time()
+            if t and t != self._last_tick_value:
+                self._last_tick_value = t
+                self._last_tick_change = now
+            elif self._last_tick_change == 0.0:
+                self._last_tick_change = now  # first observation — start the clock
+            stale = bool(self._last_tick_change) and (now - self._last_tick_change) > 300
+            if stale:
+                return {"open": False, "reason": "No new ticks for 5+ min — market closed or halted", "source": "tick"}
+            return {"open": True, "reason": "Open", "source": "tick"}
+        except Exception:
+            return {"open": sched_open, "reason": sched_reason, "source": "schedule"}
 
     def current_session(self) -> str:
         hour = datetime.now(timezone.utc).hour

@@ -354,6 +354,15 @@ _DECISION_CACHE_TS: float = 0.0
 _DECISION_CACHE_TTL: float = 4.0  # seconds
 
 
+def _market_state() -> dict[str, Any]:
+    """Is the market open? {open: bool, reason: str, source: str}. Weekend schedule (UTC) confirmed
+    by live tick-staleness when MT5 is connected (see mt5_bridge.market_open)."""
+    try:
+        return mt5_bridge.market_open()
+    except Exception:
+        return {"open": True, "reason": "Open", "source": "unknown"}
+
+
 def _cached_decision() -> dict[str, Any]:
     global _DECISION_CACHE, _DECISION_CACHE_TS
     if time.time() - _DECISION_CACHE_TS < _DECISION_CACHE_TTL and _DECISION_CACHE:
@@ -366,7 +375,14 @@ def _cached_decision() -> dict[str, Any]:
     # STRATEGIES_STATE is defined at module level after _apply_runtime_settings()
     strats = list(globals().get("STRATEGIES_STATE", {}).values())
     result = decision_engine.evaluate(market, strats, memory.stats()) if market.get("connected") else {"action": "WAIT", "confidence": 0, "quality": "NO_DATA", "reasons": ["MT5 not connected."]}
-    _DECISION_CACHE = {**result, "_market": market}
+    mkt_state = _market_state()
+    if not mkt_state.get("open", True):
+        # Market is closed — surface it clearly and stand down (no entries while closed).
+        result = {**result, "action": "MARKET_CLOSED", "quality": "MARKET_CLOSED",
+                  "reason": f"Market closed — {mkt_state.get('reason', 'outside trading hours')}."}
+    _DECISION_CACHE = {**result, "_market": market,
+                       "marketOpen": bool(mkt_state.get("open", True)),
+                       "marketStatus": mkt_state.get("reason", "")}
     _DECISION_CACHE_TS = time.time()
     return _DECISION_CACHE
 
@@ -1256,6 +1272,8 @@ def _send_wait_forecast() -> None:
     tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
     if not tg.get("enabled") or not tg.get("sendWaitForecast"):
         return
+    if not _market_state().get("open", True):
+        return  # market closed — never send WAIT / forecast signals while closed
     now = time.time()
     if now - float(RECAP_STATE.get("lastWaitForecast", 0)) < float(tg.get("waitForecastMinutes", 30)) * 60:
         return
@@ -1277,12 +1295,60 @@ def _send_wait_forecast() -> None:
                                dec.get("confidence"), strat, reason, "info")
 
 
+def _send_market_closed_update(reason: str) -> None:
+    """Telegram 'Market Closed' update that carries the DAILY TRADE SUMMARY (KPIs + equity image).
+    Sent once when the market transitions to closed (e.g. the Friday weekend close)."""
+    tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
+    if not tg.get("enabled"):
+        return
+    a = _live_analytics(); k = a.get("kpis", {}); cur = a.get("currency", "")
+    caption = (f"🔴 *GodMode — Market Closed*\n{reason}\n\n"
+               f"📊 *Daily Trade Summary*\n"
+               f"Net PnL: *{k.get('netProfit', 0)} {cur}*  ({k.get('returnPct', 0)}%)\n"
+               f"Win rate: *{k.get('winRate', 0)}%*  ·  PF: *{k.get('profitFactor', 0)}*\n"
+               f"Trades: *{k.get('totalTrades', 0)}*  ·  Max DD: *{k.get('maxDrawdown', 0)}%*\n"
+               f"Expectancy: *{k.get('expectancy', 0)} {cur}*/trade\n\n"
+               f"_No WAIT/forecast signals will be sent until the market reopens._")
+    kpis = {"Net": k.get("netProfit", 0), "Win%": k.get("winRate", 0), "PF": k.get("profitFactor", 0), "Trades": k.get("totalTrades", 0)}
+    img = chart_render.render_equity_recap(a.get("equityCurve", []), title="GodMode — Market Closed (Daily Summary)", kpis=kpis) if chart_render.available() else None
+    if img and _telegram_send_photo(img, caption).get("ok"):
+        return
+    _telegram_send_text(caption)
+
+
+def _send_market_open_update(reason: str = "") -> None:
+    """Telegram 'Market Open' update when the market reopens."""
+    tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
+    if not tg.get("enabled"):
+        return
+    _telegram_send_text("🟢 *GodMode — Market Open*\nXAUUSD is trading again. The bot is live and scanning for valid setups.")
+
+
+def _check_market_transition() -> None:
+    """Detect open↔closed transitions and fire the matching Telegram update. The closed update
+    includes the daily trade summary; while closed, WAIT/forecast signals are suppressed."""
+    mkt = _market_state()
+    is_open = bool(mkt.get("open", True))
+    prev = RECAP_STATE.get("marketOpen")
+    if prev is None:
+        RECAP_STATE["marketOpen"] = is_open   # initialise silently — never alert on startup
+        return
+    if is_open == prev:
+        return
+    RECAP_STATE["marketOpen"] = is_open
+    if is_open:
+        _send_market_open_update(mkt.get("reason", ""))
+    else:
+        _send_market_closed_update(mkt.get("reason", "Market closed for the day"))
+
+
 async def _recap_loop() -> None:
     while True:
         try:
             tm = time.gmtime()
             today = time.strftime("%Y-%m-%d", tm)
             tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
+            _check_market_transition()   # market open/closed Telegram updates (any time, throttled by state)
             if tg.get("enabled"):
                 week = time.strftime("%Y-W%U", tm)
                 hour = int(tg.get("recapHourUtc", 21))
@@ -1573,6 +1639,14 @@ def _live_dashboard() -> dict[str, Any]:
     if not mt5_bridge.status().get("connected") and _demo_enabled():
         d = demo_data.dashboard()
         d["status"] = status()
+        # Reflect real market hours even on demo data so 'Market Closed' is honest on weekends.
+        mkt = _market_state()
+        if isinstance(d.get("decision"), dict):
+            d["decision"]["marketOpen"] = bool(mkt.get("open", True))
+            d["decision"]["marketStatus"] = mkt.get("reason", "")
+            if not mkt.get("open", True):
+                d["decision"]["action"] = "MARKET_CLOSED"
+                d["decision"]["reason"] = f"Market closed — {mkt.get('reason', 'outside trading hours')}."
         return d
     account_data = _live_account()
     decision_cached = _cached_decision()
@@ -1909,7 +1983,7 @@ def _action_matrix(decision: dict[str, Any] | None = None, position: dict[str, A
     confidence = float(decision.get("confidence", 0) or 0)
     dirty = bool(kill_switch.status().get("active") or market.get("newsBlackout") or market.get("dirtyConditions"))
     take = action == "TAKE_TRADE" and quality in {"SCOUT", "STANDARD", "HIGH", "SNIPER"} and confidence >= decision_engine.min_take_score and not dirty
-    wait = not take and not dirty and action not in {"SKIP", "BLOCK"}
+    wait = not take and not dirty and action not in {"SKIP", "BLOCK", "MARKET_CLOSED"}
     return {
         "takeThisTrade": take,
         "skipThisTrade": not take and not wait,
@@ -1947,11 +2021,14 @@ def api_root():
 def status():
     mt5 = mt5_bridge.status()
     demo = _demo_enabled()
+    mkt = _market_state()
     return {
         "app": "GodMode Gold Trading Bot",
         "liveConnection": bool(mt5.get("connected")) or demo,
         "mt5Connected": bool(mt5.get("connected")) or demo,
         "marketSession": mt5_bridge.current_session(),
+        "marketOpen": bool(mkt.get("open", True)),
+        "marketStatus": mkt.get("reason", ""),
         "riskEngine": "ACTIVE" if not kill_switch.status().get("active") else "BLOCKED",
         "agentStatus": "Live" if mt5.get("connected") else ("Demo" if demo else "Waiting for MT5"),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
