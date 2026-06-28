@@ -49,6 +49,45 @@ export const MarketChart=LiveTradeViewChart;
 
 export function EquityCurve({height=220,data=[]}:{height?:number;data?:any[]}){if(!data.length)return <EmptyChart message="No bot-only equity history yet"/>;return <ResponsiveContainer width="100%" height={height}><AreaChart data={data}><defs><linearGradient id="eq" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--purple)" stopOpacity={.55}/><stop offset="100%" stopColor="var(--purple)" stopOpacity={0}/></linearGradient></defs><CartesianGrid stroke="var(--border-soft)" vertical={false}/><XAxis dataKey="date" tick={{fill:'var(--text-muted)',fontSize:11}} axisLine={false} tickLine={false}/><YAxis tick={{fill:'var(--text-muted)',fontSize:11}} axisLine={false} tickLine={false}/><Tooltip contentStyle={{background:'var(--surface)',border:'1px solid var(--border)',color:'var(--text)'}}/><Area type="monotone" dataKey="equity" stroke="var(--purple)" fill="url(#eq)" strokeWidth={3}/><Line type="monotone" dataKey="benchmark" stroke="var(--text-faint)" strokeDasharray="4 4" dot={false}/></AreaChart></ResponsiveContainer>}
 export function ReturnsHeatmap({data=[]}:{data?:any[]}){const days=['Mon','Tue','Wed','Thu','Fri']; if(!data.length) return <p className="muted tiny">No returns yet.</p>; return <div style={{display:'grid',gap:7,minWidth:0}}>{data.map(row=><div key={row.week} style={{display:'grid',gridTemplateColumns:'minmax(40px,64px) repeat(5,minmax(0,1fr))',gap:6,alignItems:'center',minWidth:0}}><span className="tiny muted" style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}}>{row.week}</span>{days.map(d=>{const v=(row as any)[d]||0;return <span key={d} style={{borderRadius:8,padding:'8px 4px',textAlign:'center',fontWeight:800,fontSize:11.5,minWidth:0,overflow:'hidden',color:v<0?'var(--red)':'var(--green)',background:v<0?'var(--red-soft)':'var(--green-soft)'}}>{v?`${v}%`:'—'}</span>})}</div>)}</div>}
+// Aesthetic per-day RETURNS CALENDAR (Mon–Fri columns, weeks as rows). Click any day to see what the
+// AI detected that day and the best optimisation for the next day. Falls back to a message if empty.
+const DOW=['Mon','Tue','Wed','Thu','Fri'] as const;
+export function ReturnsCalendar({data=[],currency=''}:{data?:any[];currency?:string}){
+  const days=Array.isArray(data)?data:[];
+  const withTrades=days.filter(d=>d&&d.trades>0);
+  const [sel,setSel]=useState<string>('');
+  useEffect(()=>{if(!sel&&withTrades.length)setSel(withTrades[withTrades.length-1].date)},[data]);// eslint-disable-line
+  if(!days.length) return <p className="muted tiny">No returns yet — your day-by-day calendar fills in as the bot closes trades.</p>;
+  // group into ordered weeks
+  const weeks:string[]=[]; const grid:Record<string,Record<string,any>>={};
+  days.forEach(d=>{if(!weeks.includes(d.week))weeks.push(d.week); (grid[d.week]||(grid[d.week]={}))[d.dow]=d;});
+  const selected=days.find(d=>d.date===sel)|| withTrades[withTrades.length-1] || null;
+  const maxAbs=Math.max(1,...days.map(d=>Math.abs(Number(d.pnl||0))));
+  const cell=(d:any)=>{
+    if(!d) return <div className="rc-cell rc-empty" key={Math.random()}/>;
+    const v=Number(d.pnl||0); const has=d.trades>0; const mag=Math.min(1,Math.abs(v)/maxAbs);
+    const bg=!has?'transparent':v>0?`color-mix(in srgb, var(--green) ${14+mag*46}%, transparent)`:v<0?`color-mix(in srgb, var(--red) ${14+mag*46}%, transparent)`:'var(--surface-muted)';
+    const dn=String(d.date||'').slice(8,10);
+    return <button key={d.date} className={`rc-cell${has?' rc-has':''}${sel===d.date?' rc-sel':''}`} style={{background:bg}} onClick={()=>setSel(d.date)} title={`${d.date} · ${d.trades} trade(s)`}>
+      <span className="rc-dn">{dn}</span>
+      <strong className={v>0?'positive':v<0?'negative':'muted'} style={{fontSize:13}}>{has?`${v>0?'+':''}${v}`:'·'}</strong>
+      {has&&<span className="rc-tn">{d.wins}W·{d.losses}L</span>}
+    </button>;
+  };
+  const fmtDate=(s:string)=>{try{return new Date(s+'T00:00:00').toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'})}catch{return s}};
+  return <div className="returns-cal">
+    <div className="rc-grid rc-head"><span className="rc-corner"/>{DOW.map(d=><span key={d} className="rc-dow">{d}</span>)}</div>
+    {weeks.map(w=><div className="rc-grid" key={w}><span className="rc-wk">{w}</span>{DOW.map(d=>cell(grid[w][d]))}</div>)}
+    {selected&&<div className="returns-detail">
+      <div className="rc-detail-head">
+        <div><strong>{fmtDate(selected.date)}</strong><div className="tiny muted">{selected.trades} trade(s) · {selected.wins}W / {selected.losses}L</div></div>
+        <h3 className={Number(selected.pnl)>=0?'positive':'negative'} style={{margin:0}}>{Number(selected.pnl)>=0?'+':''}{currency?currency+' ':''}{selected.pnl}</h3>
+      </div>
+      <div className="rc-insight"><span className="rc-ilabel">🔍 What the AI detected</span><p>{selected.detected||'—'}</p></div>
+      <div className="rc-insight"><span className="rc-ilabel gold">⚡ Best optimisation for the next day</span><p>{selected.optimization||'—'}</p></div>
+    </div>}
+  </div>;
+}
 export function Donut({value=0}:{value?:number}){return <ResponsiveContainer width="100%" height={150}><PieChart><Pie data={[{name:'value',value},{name:'rest',value:100-value}]} innerRadius={48} outerRadius={64} startAngle={90} endAngle={-270} dataKey="value"><Cell fill="var(--green)"/><Cell fill="var(--surface-muted)"/></Pie></PieChart></ResponsiveContainer>}
 export function DrawdownChart({data=[]}:{data?:any[]}){if(!data.length)return <EmptyChart message="No drawdown data yet"/>;return <ResponsiveContainer width="100%" height={180}><AreaChart data={data}><CartesianGrid stroke="var(--border-soft)" vertical={false}/><XAxis dataKey="date" tick={{fill:'var(--text-muted)',fontSize:10}}/><YAxis tick={{fill:'var(--text-muted)',fontSize:10}}/><Area dataKey="value" stroke="var(--red)" fill="var(--red-soft)"/></AreaChart></ResponsiveContainer>}
 export function BarDistribution({data=[]}:{data?:any[]}){if(!data.length)return <p className="muted tiny">No distribution yet.</p>;return <ResponsiveContainer width="100%" height={150}><BarChart data={data}><XAxis dataKey="x" tick={{fill:'var(--text-muted)',fontSize:10}}/><YAxis tick={{fill:'var(--text-muted)',fontSize:10}}/><Bar dataKey="v" fill="var(--green)" radius={[8,8,0,0]}/></BarChart></ResponsiveContainer>}

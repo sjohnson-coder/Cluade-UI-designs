@@ -56,11 +56,11 @@ export default function AIAgent(){
 
       <Card style={{marginTop:16}}><SectionTitle icon={<Activity size={16}/>} title="Live Chart — entry / SL / TP read by the AI"/><LiveChart symbol={market.symbol||'XAUUSD'} height={320} candles={candles} levels={d.tradePlan?{entry:d.tradePlan.entry,sl:d.tradePlan.sl,tp1:d.tradePlan.tp1,tp2:d.tradePlan.tp2,tp3:d.tradePlan.tp3}:{}}/></Card>
 
-      <div className="grid grid-3" style={{marginTop:16}}>
+      <div className="grid grid-2" style={{marginTop:16}}>
         <Card><SectionTitle title="Why the AI is NOT trading yet"/>{blocks.length?<Checklist items={blocks.map((b:string)=>({label:b,value:'BLOCK',type:'danger'}))}/>:soft.length?<Checklist items={soft.map((b:string)=>({label:b,value:'SOFT',type:'warning'}))}/>:<Checklist items={[{label:take?'All hard gates passed — trade approved':'Monitoring for a valid setup',value:take?'READY':'OK',type:'success'}]}/>}</Card>
-        <Card><SectionTitle title="Performance Adaptation (bot-only)"/><MetricCard label="Win Rate (real)" value={`${k.winRate||0}%`}/><MetricCard label="Profit Factor" value={k.profitFactor||0}/><MetricCard label="Expectancy" value={money(k.expectancy,currency)}/></Card>
-        <Card><SectionTitle title="Journal of AI Decisions"/><DataTable columns={['Time','Pair','Action','PnL','Result']} rows={(analytics.history||[]).slice(0,8)} renderCell={(r,c)=>c==='Action'?<SideBadge side={r.side||r.direction}/>:c==='PnL'?<span className={Number(r.pnlUsd)>=0?'positive':'negative'}>{money(r.pnlUsd,currency)}</span>:c==='Result'?<Tag color={Number(r.pnlUsd)>=0?'green':'red'}>{Number(r.pnlUsd)>=0?'WIN':'LOSS'}</Tag>:c==='Time'?(r.closeTime||'—'):r[c.toLowerCase()]||r.symbol||'—'}/></Card>
+        <Card><SectionTitle title="Performance Adaptation (bot-only)"/><div className="grid grid-3 ai-adapt-row"><MetricCard label="Win Rate (real)" value={`${k.winRate||0}%`}/><MetricCard label="Profit Factor" value={k.profitFactor||0}/><MetricCard label="Expectancy" value={money(k.expectancy,currency)}/></div></Card>
       </div>
+      <Card style={{marginTop:16}}><SectionTitle title="Journal of AI Decisions"/><DataTable columns={['Time','Pair','Action','PnL','Result']} rows={(analytics.history||[]).slice(0,8)} renderCell={(r,c)=>c==='Action'?<SideBadge side={r.side||r.direction}/>:c==='PnL'?<span className={Number(r.pnlUsd)>=0?'positive':'negative'}>{money(r.pnlUsd,currency)}</span>:c==='Result'?<Tag color={Number(r.pnlUsd)>=0?'green':'red'}>{Number(r.pnlUsd)>=0?'WIN':'LOSS'}</Tag>:c==='Time'?(r.closeTime||'—'):r[c.toLowerCase()]||r.symbol||'—'}/></Card>
     </div>
 
     <div className="right-stack side-panel-sticky">

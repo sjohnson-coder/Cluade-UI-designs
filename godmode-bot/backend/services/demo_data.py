@@ -458,6 +458,46 @@ def analytics(date_from: str | None = None, date_to: str | None = None) -> dict[
                 "Wed": round(rng.uniform(-0.5, 2.0), 2), "Thu": round(rng.uniform(-0.5, 1.5), 2),
                 "Fri": round(rng.uniform(-0.3, 1.5), 2)} for w in range(1, 6)]
 
+    # Per-day returns CALENDAR with a clickable AI insight per day (demo).
+    # NOTE: use locally-scoped (c-prefixed) names so we never shadow the outer wins/losses/total lists.
+    _wd = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    returns_calendar: list[dict[str, Any]] = []
+    today = datetime.now(timezone.utc).date()
+    crng = random.Random(_day_seed(7))
+    for c_back in range(34, -1, -1):
+        c_d = today - timedelta(days=c_back)
+        _iy, c_iw, c_iwd = c_d.isocalendar()
+        if c_iwd > 5:
+            continue
+        c_trades = crng.randint(0, 5)
+        if c_trades == 0:
+            returns_calendar.append({"date": c_d.strftime("%Y-%m-%d"), "week": f"W{c_iw:02d}", "dow": _wd[c_iwd - 1],
+                                     "pnl": 0.0, "pct": 0.0, "trades": 0, "wins": 0, "losses": 0,
+                                     "detected": "No trades — the tape never cleared the bot's entry gates.",
+                                     "optimization": "Keep settings; wait for a clean London–NY trend setup."})
+            continue
+        c_wins = crng.randint(0, c_trades)
+        c_losses = c_trades - c_wins
+        c_pnl = round(crng.uniform(-90, 240) + c_wins * 40 - c_losses * 35, 2)
+        c_conf = crng.randint(64, 88)
+        c_wr = round(c_wins / c_trades * 100)
+        if c_pnl > 0 and c_wr >= 50:
+            c_det = (f"Clean, tradeable tape — {c_trades} trades, {c_wins}W/{c_losses}L, net {c_pnl:+}, "
+                     f"avg confidence {c_conf}%. Signals followed through.")
+            c_opt = "Keep the current config — it matched the regime. On A+ continuations let the pyramid scale winners."
+        elif c_pnl < 0:
+            c_det = (f"Choppy / low follow-through — {c_trades} trades, {c_wins}W/{c_losses}L, net {c_pnl:+}. "
+                     f"Entries triggered (avg conf {c_conf}%) but reversed before target.")
+            c_opt = ("Raise Standard Confidence and require 5/12 confluence tomorrow — most losers were marginal signals."
+                     if c_conf < 75 else
+                     "Tighten Max Spread and trade London–NY only tomorrow so cost drag can't turn break-even into a loss.")
+        else:
+            c_det = f"Mixed tape — {c_trades} trades, {c_wins}W/{c_losses}L, net {c_pnl:+}, avg confidence {c_conf}%."
+            c_opt = "Hold settings; the sample is small. Let the edge prove out before changing anything."
+        returns_calendar.append({"date": c_d.strftime("%Y-%m-%d"), "week": f"W{c_iw:02d}", "dow": _wd[c_iwd - 1],
+                                 "pnl": c_pnl, "pct": round(c_pnl / START_BALANCE * 100, 2), "trades": c_trades,
+                                 "wins": c_wins, "losses": c_losses, "detected": c_det, "optimization": c_opt})
+
     heatmap = [{"x": s, "v": round(rng.uniform(-100, 6700), 2)} for s in ["M5", "M15", "H1", "H4", "D1"]]
     exec_quality = [{"x": b, "v": round(rng.uniform(2, 80), 1)} for b in ["<0", "0-0.5", "0.5-1", "1-2", "2-3", ">3"]]
     scatter = [{"confidence": rng.randint(50, 95), "result": round(rng.uniform(-2, 4), 2)} for _ in range(40)]
@@ -482,6 +522,7 @@ def analytics(date_from: str | None = None, date_to: str | None = None) -> dict[
         "equityCurve": curve,
         "drawdown": drawdown,
         "returns": returns,
+        "returnsCalendar": returns_calendar,
         "topStrategies": top_strategies,
         "sessions": sessions,
         "marketHeatmap": heatmap,

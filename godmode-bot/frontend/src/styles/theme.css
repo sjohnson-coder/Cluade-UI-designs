@@ -141,6 +141,16 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .search-compact svg{color:var(--text-faint);flex-shrink:0}
 .search-compact .input,.search-compact input{border:0;background:transparent;height:auto;padding:0;flex:1;box-shadow:none;font-weight:600}
 .search-compact .input:focus,.search-compact input:focus{box-shadow:none}
+/* Journal filter: a clean flex row where every control (incl. Search) is the SAME height and shape.
+   The search now sits in a normal labelled field so it lines up perfectly and never looks distorted.
+   Selectors are scoped to .filter-row.journal-filter so they beat the generic .filter-row grid rules. */
+.filter-row.journal-filter{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.filter-row.journal-filter>label{display:grid;gap:6px;flex:1 1 150px;min-width:0;color:var(--text-muted);font-size:11px;font-weight:700}
+.filter-row.journal-filter>label.search-field{flex:2 1 240px}
+.filter-row.journal-filter .search-box{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--field)}
+.filter-row.journal-filter .search-box:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-soft)}
+.filter-row.journal-filter .search-box svg{color:var(--text-faint);flex-shrink:0}
+.filter-row.journal-filter .search-box input{flex:1;min-width:0;border:0;background:transparent;height:36px;padding:0;box-shadow:none;outline:0;font-weight:600;color:var(--text);font-size:13px}
 
 /* ---------------- GRID ---------------- */
 .grid{display:grid;gap:16px}
@@ -149,6 +159,8 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}
 .grid-5{grid-template-columns:repeat(5,minmax(0,1fr))}
 .span-2{grid-column:span 2}.span-3{grid-column:span 3}
+/* full-row span in ANY column count (no implicit extra tracks) — use for full-width cards in a grid */
+.span-full{grid-column:1/-1}
 .right-stack{display:grid;gap:16px;align-content:start}
 .side-panel-sticky{position:sticky;top:calc(var(--topbar-h) + 16px)}
 .dashboard-top,.exact-top{display:grid;grid-template-columns:2.1fr 1.08fr 1.05fr;gap:16px;margin-bottom:16px}
@@ -159,6 +171,23 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 
 .metric-card{min-height:76px;display:flex;align-items:center;padding:14px 16px}
 .metric-card .value{font-size:21px}
+.metric-card>div{min-width:0;width:100%}
+.metric-card .value{overflow:hidden;text-overflow:ellipsis}
+/* AI Agent top strip: 5 status cards on one row — shrink the value font and let it wrap so long
+   strings ("Waiting for MT5", "TAKE SELL") never overflow to the right at any width. */
+.ai-top-strip .metric-card{min-height:64px;padding:11px 13px}
+.ai-top-strip .metric-card .value{font-size:15px;line-height:1.15;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+.ai-top-strip .metric-card .label{font-size:9.5px}
+/* Performance-adaptation mini metrics inside a card */
+.ai-adapt-row{gap:10px}
+.ai-adapt-row .metric-card{min-height:62px;padding:10px 12px}
+.ai-adapt-row .metric-card .value{font-size:16px}
+.settings-subhead{font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--gold-dark);margin:10px 0 2px;padding-top:8px;border-top:1px dashed var(--border)}
+.help-steps{display:grid;gap:10px;margin-top:6px}
+.help-step{border:1px solid var(--border-soft);border-left:3px solid var(--gold);border-radius:var(--r-md);background:var(--surface-soft);padding:10px 12px}
+.help-step>strong{font-size:12.5px}
+.help-step p{margin:4px 0 0;font-size:11.5px;line-height:1.5;color:var(--text-muted)}
+.help-step code{background:var(--surface-muted);border:1px solid var(--border-soft);border-radius:5px;padding:1px 5px;font-size:10.5px;word-break:break-word}
 .form-row{display:grid;grid-template-columns:148px minmax(0,1fr);align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border-soft);font-size:12px}
 .form-row>span{color:var(--text-muted);font-weight:800}
 .button-wrap,.segmented{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -169,7 +198,7 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .checklist-item{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border-soft)}
 .checklist-item:last-child{border-bottom:0}
 .checklist-item span{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere}
-.checklist-item strong{text-align:right;min-width:0;overflow-wrap:anywhere}
+.checklist-item strong{text-align:right;flex-shrink:0;white-space:nowrap}
 
 .progress-track{height:7px;border-radius:var(--r-pill);background:var(--surface-muted);overflow:hidden}
 .progress-fill{height:100%;border-radius:var(--r-pill);background:linear-gradient(90deg,var(--green),#6ee7b7);transition:width var(--med)}
@@ -308,7 +337,7 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .report-action{margin-top:14px;border-top:1px solid var(--border-soft);padding-top:14px;display:grid;gap:10px}
 .code-box{white-space:pre-wrap;overflow:auto;max-height:300px;font-family:"Geist Mono",ui-monospace,monospace;font-size:10.5px;line-height:1.45;border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--surface-muted);color:var(--text-muted)}
 .notice-box{position:relative}
-.notice-menu{position:absolute;right:0;top:48px;width:330px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--shadow-card);padding:12px;z-index:100}
+.notice-menu{position:absolute;right:0;top:48px;width:330px;max-width:calc(100vw - 28px);max-height:min(70vh,460px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--shadow-card);padding:12px;z-index:200}
 .notice-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .notice-item{padding:10px;border-bottom:1px solid var(--border-soft);display:grid;gap:3px}
 .notice-item strong{font-size:12px}.notice-item span,.notice-item small{font-size:11px;color:var(--text-muted)}
@@ -316,6 +345,27 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .action-toast{min-width:270px;max-width:380px;border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);color:var(--text);box-shadow:var(--shadow-card);padding:11px 13px;font-size:12px;line-height:1.35;display:grid;gap:3px;animation:rise var(--med)}
 .action-toast strong{color:var(--gold-dark);font-size:12px}.action-toast span{color:var(--text-muted)}
 .footer-risk{text-align:center;color:var(--text-faint);font-size:11px;padding:18px 0 2px}
+
+/* ---------------- RETURNS CALENDAR ---------------- */
+.returns-cal{display:grid;gap:6px;min-width:0}
+.rc-grid{display:grid;grid-template-columns:46px repeat(5,minmax(0,1fr));gap:6px;align-items:stretch;min-width:0}
+.rc-head{margin-bottom:2px}
+.rc-dow{text-align:center;font-size:10px;font-weight:800;letter-spacing:.04em;color:var(--text-muted);text-transform:uppercase;align-self:center}
+.rc-corner{}
+.rc-wk{font-size:10px;font-weight:800;color:var(--text-faint);display:flex;align-items:center;min-width:0;overflow:hidden}
+.rc-cell{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-width:0;min-height:54px;border:1px solid var(--border-soft);border-radius:10px;background:transparent;padding:6px 4px;cursor:default;transition:transform var(--fast),box-shadow var(--fast),border-color var(--fast)}
+.rc-cell.rc-has{cursor:pointer;border-color:var(--border)}
+.rc-cell.rc-has:hover{transform:translateY(-1px);box-shadow:var(--shadow-soft)}
+.rc-cell.rc-sel{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-soft)}
+.rc-cell.rc-empty{border-style:dashed;opacity:.5}
+.rc-dn{position:absolute;top:3px;left:6px;font-size:9px;font-weight:800;color:var(--text-faint)}
+.rc-tn{font-size:9px;font-weight:700;color:var(--text-muted)}
+.returns-detail{margin-top:4px;border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface-soft);padding:13px 14px;display:grid;gap:10px}
+.rc-detail-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.rc-insight{display:grid;gap:3px}
+.rc-insight p{margin:0;font-size:12.5px;line-height:1.45;color:var(--text)}
+.rc-ilabel{font-size:10.5px;font-weight:800;letter-spacing:.03em;color:var(--text-muted);text-transform:uppercase}
+.rc-ilabel.gold{color:var(--gold-dark)}
 
 /* ---------------- ANIMATIONS ---------------- */
 @keyframes pulse-dot{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 6px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
@@ -329,7 +379,9 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
    wrapping or scrolling — drop the (non-functional) search field, compact the status chips, and
    show the theme toggle as icons only. The page header still wraps its controls when needed. */
 @media(max-width:1720px){
-  .topbar{flex-wrap:nowrap;height:var(--topbar-h);gap:9px;padding:0 14px;overflow:hidden}
+  /* clip horizontal spill of the condensed chips, but let the notifications dropdown
+     overflow DOWNWARD (overflow-y stays visible) so the bell popup is never clipped */
+  .topbar{flex-wrap:nowrap;height:var(--topbar-h);gap:9px;padding:0 14px;overflow-x:clip;overflow-y:visible}
   .topbar .search{display:none}
   .status-chip{min-width:0;flex:0 1 auto;padding:0 10px;gap:6px}
   .status-chip>div{min-width:0}

@@ -15,7 +15,19 @@ That's the whole setup - no npm, no build step (the dashboard is pre-built).
 ## Requirements
 - **Python 3** (macOS doesn't always include it). If the launcher says Python is missing, install it
   from the App Store or https://www.python.org/downloads/macos/ (or `brew install python`), then
-  double-click the launcher again.
+  double-click the launcher again. The launcher checks the common Homebrew and python.org locations
+  automatically.
+
+## If the first run looks like it failed
+The launcher is built to *not* give up:
+- It tries the full `requirements.txt` first (identical to Windows). If that hits a snag — almost
+  always the **optional** `matplotlib` on the very newest Python — it automatically installs just the
+  **core** packages the bot needs and continues. `matplotlib` only adds Telegram chart *images*; the
+  bot runs fine without it.
+- It self-heals the common Mac gotchas: it makes the `.command` files executable and clears the
+  download "quarantine" flag, so the other launchers work on the next click.
+- If it still can't install the core packages, it's almost always **no internet** — connect and
+  re-run. The window stays open and prints the exact error.
 
 ## IMPORTANT - live MT5 trading is Windows-only
 MetaTrader 5's automation API (the `MetaTrader5` Python package) **only runs on Windows**. On a Mac the

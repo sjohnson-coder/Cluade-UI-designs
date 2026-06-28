@@ -595,6 +595,7 @@ class GoldDecisionEngine:
         self.max_spread_atr_frac = 0.045
         self.min_rr           = 1.4
         self.min_confluence   = 3
+        self.confluence_by_mode = {"relaxed": 2, "balanced": 3, "strict": 4, "sniper": 5}
         self.min_session_score = 50.0
         # Over-extension is now graded, not a single hard veto: a soft (scout) flag
         # past `soft`, a hard block only past `hard` (a genuine chase). This stops the
@@ -645,6 +646,17 @@ class GoldDecisionEngine:
         }
         p = presets.get(mode, presets["balanced"])
         self.strictness_mode    = mode if mode in presets else "balanced"
+        # Per-mode confluence: the user can set the required confluence (out of 12) for EACH strict
+        # mode in Settings. The active mode's value is applied; the rest are remembered for when they
+        # switch modes. Falls back to the global minConfluence, then the preset default.
+        conf_by_mode = {m: presets[m]["conf"] for m in presets}
+        for m, v in (payload.get("confluenceByMode") or {}).items():
+            if m in conf_by_mode:
+                try:
+                    conf_by_mode[m] = max(0, min(12, int(v)))
+                except Exception:
+                    pass
+        self.confluence_by_mode = conf_by_mode
         self.allow_scout_entries = bool(payload.get("allowScoutEntries", True))
         self.min_scout_score     = float(payload.get("scoutConfidence",   p["scout"]))
         self.min_standard_score  = float(payload.get("standardConfidence", p["standard"]))
@@ -652,7 +664,7 @@ class GoldDecisionEngine:
         self.min_sniper_score    = float(payload.get("sniperConfidence",  p["sniper"]))
         self.max_spread          = float(payload.get("maxSpread",         p["spread"]))
         self.min_rr              = float(payload.get("minRiskReward",     p["rr"]))
-        self.min_confluence      = int(payload.get("minConfluence",       p["conf"]))
+        self.min_confluence      = int(payload.get("minConfluence", conf_by_mode[self.strictness_mode]))
         self.min_session_score   = float(payload.get("minSessionScore",   p["sess"]))
         self.min_efficiency_ratio = float(payload.get("minEfficiencyRatio", p.get("eff", 0.28)))
         self.cost_discipline = bool(payload.get("costDiscipline", getattr(self, "cost_discipline", True)))
@@ -674,6 +686,7 @@ class GoldDecisionEngine:
             "maxSpread":         self.max_spread,
             "minRiskReward":     self.min_rr,
             "minConfluence":     self.min_confluence,
+            "confluenceByMode":  getattr(self, "confluence_by_mode", {"relaxed": 2, "balanced": 3, "strict": 4, "sniper": 5}),
             "minSessionScore":   self.min_session_score,
             "minEfficiencyRatio": self.min_efficiency_ratio,
             "costDiscipline": self.cost_discipline,

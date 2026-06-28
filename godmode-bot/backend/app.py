@@ -105,6 +105,10 @@ monte_carlo = MonteCarloTester()
 backtester = CostAwareBacktester()
 strategy_lab = StrategyLab()
 LAB_STATE: dict[str, Any] = {"lastRun": 0.0, "lastResult": None, "lastRecSig": None, "installedProfile": None}
+# Last Backtest / Validate result — persisted in memory so the result is still viewable after you
+# click away to another tab (or come back later), exactly like the Strategy Lab. Served by
+# /api/backtest/last and reloaded by the Backtest tab on mount.
+BACKTEST_STATE: dict[str, Any] = {"lastRun": 0.0, "lastResult": None, "lastValidation": None}
 # The AI strictness keys a Strategy-Lab install is allowed to change. Snapshotting these before an
 # install is what makes the install REVERSIBLE (see /api/lab/install + /api/lab/uninstall).
 _LAB_GATE_KEYS = ("strictnessMode", "scoutConfidence", "standardConfidence", "sniperConfidence",
@@ -248,7 +252,7 @@ def _default_settings() -> dict[str, Any]:
         "appearance": {"theme": "light", "accentColor": "gold", "density": "comfortable"},
         "trading": {"symbol": os.getenv("MT5_SYMBOL", "XAUUSD"), "timeframe": "M15", "orderType": "Market", "riskPerTrade": 0.5, "slippageTolerance": 0.5, "magicNumber": mt5_bridge.magic, "commentPrefix": mt5_bridge.comment_prefix, "autoRefreshData": True, "autoResumeOnStart": False, "allowedSessions": ["Asia", "London", "London / New York", "New York"], "tradeManagement": {"autoBreakEven": True, "breakEvenAtRR": 0.4, "autoTrailing": True, "trailStartRR": 0.5, "trailAtrMult": 1.0, "trailStructure": "M15", "fastFailEnabled": True, "fastFailLossR": -0.5, "fastFailNoProgressCandles": 3, "partialTakeProfit": True, "tpPushEnabled": True, "protectStartAtr": 0.4, "profitLockFraction": 0.35, "trailStartAtr": 0.7, "smartRecoveryRoom": True, "recoveryRoomAtr": 0.3}},
         "execution": {"dryRun": not mt5_bridge.live_enabled, "liveTradingEnabled": mt5_bridge.live_enabled, "autoTradingEnabled": mt5_bridge.auto_trading_enabled, "requireAiApproval": True, "manualExecutionEnabled": False},
-        "ai": {"strictnessMode": "balanced", "allowScoutEntries": True, "scoutConfidence": 72.0, "standardConfidence": 78.0, "sniperConfidence": 90.0, "minRiskReward": 1.5, "maxSpread": 0.40, "showBlockedReasons": True, "heartbeatEnabled": True, "firstEntryLotMode": "base_lot_only", "respectAllowedSessions": True, "rangeAwareness": True, "rangeFade": False, "rangeTopPos": 0.78, "rangeBottomPos": 0.22, "costDiscipline": True, "maxSpreadAtrFrac": 0.045},
+        "ai": {"strictnessMode": "balanced", "allowScoutEntries": True, "scoutConfidence": 72.0, "standardConfidence": 78.0, "sniperConfidence": 90.0, "minRiskReward": 1.5, "maxSpread": 0.40, "showBlockedReasons": True, "heartbeatEnabled": True, "firstEntryLotMode": "base_lot_only", "respectAllowedSessions": True, "rangeAwareness": True, "rangeFade": False, "rangeTopPos": 0.78, "rangeBottomPos": 0.22, "costDiscipline": True, "maxSpreadAtrFrac": 0.045, "confluenceByMode": {"relaxed": 2, "balanced": 3, "strict": 4, "sniper": 5}},
         # Automation discipline: stop revenge-stacking and run the AI recovery monitor.
         "automation": {
             "postLossCooldownMinutes": 10.0,     # forced reanalysis pause after any loss
@@ -1720,6 +1724,95 @@ def _live_risk() -> dict[str, Any]:
         "source": account_data.get("source", "not_connected"),
     }
 
+def _day_insight(day_trades: list[dict[str, Any]]) -> dict[str, str]:
+    """From a single day's REAL closed trades, derive (1) what the AI effectively detected that day
+    and (2) the best optimisation for the FOLLOWING day. Everything here is computed from that day's
+    own outcomes — it's guidance grounded in real results, not a generic tip."""
+    n = len(day_trades)
+    if not n:
+        return {"detected": "No trades — the tape never cleared the bot's entry gates (low efficiency / "
+                            "insufficient confluence / wide spread).",
+                "optimization": "Keep your settings. Wait for a clean London–NY trend setup; quiet days are "
+                                "correctly skipped, not forced."}
+    pnls = [float(t.get("pnlUsd", 0) or 0) for t in day_trades]
+    wins = sum(1 for p in pnls if p > 0)
+    losses = sum(1 for p in pnls if p < 0)
+    net = round(sum(pnls), 2)
+    confs = [float(t.get("confidence", 0) or 0) for t in day_trades if t.get("confidence") is not None]
+    avg_conf = round(sum(confs) / len(confs), 0) if confs else 0
+    wr = round(wins / n * 100)
+    sess_counts: dict[str, int] = {}
+    for t in day_trades:
+        s = str(t.get("session") or "Unknown")
+        sess_counts[s] = sess_counts.get(s, 0) + 1
+    top_sess = max(sess_counts, key=sess_counts.get) if sess_counts else "—"
+    # What the AI detected (framed by the day's realised behaviour)
+    if net > 0 and wr >= 50:
+        detected = (f"Clean, tradeable tape — {n} trade(s), {wins}W/{losses}L, net {net:+}, "
+                    f"avg confidence {avg_conf:.0f}%. Best activity in {top_sess}. Signals followed through.")
+    elif net < 0 and wr < 50:
+        detected = (f"Choppy / low follow-through — {n} trade(s), {wins}W/{losses}L, net {net:+}. "
+                    f"Entries triggered (avg conf {avg_conf:.0f}%) but price reversed before target — classic chop.")
+    else:
+        detected = (f"Mixed tape — {n} trade(s), {wins}W/{losses}L, net {net:+}, avg confidence "
+                    f"{avg_conf:.0f}%. Some setups worked, some faded; no decisive regime.")
+    # Best optimisation for the FOLLOWING day
+    if net < 0:
+        if avg_conf and avg_conf < 75:
+            optimization = ("Raise Standard Confidence and require 5/12 confluence tomorrow — most losers were "
+                            "marginal signals that wouldn't pass a stricter gate.")
+        else:
+            optimization = ("Signal quality was OK but costs/timing bled it — tighten Max Spread and trade "
+                            "London–NY only tomorrow so cost drag can't turn break-even into a loss.")
+    elif net > 0 and wr >= 60:
+        optimization = ("Keep the current config — it matched the regime. On A+ continuations consider letting "
+                        "the prove/confirm/press pyramid scale the winners.")
+    elif net > 0:
+        optimization = "Hold settings; the edge showed but the sample is small. Let it prove out before changing anything."
+    else:
+        optimization = ("Stay defensive tomorrow: keep range-awareness on and confluence high until a clean "
+                        "trend re-establishes — don't loosen gates chasing a flat day.")
+    return {"detected": detected, "optimization": optimization}
+
+
+def _build_returns_calendar(history: list[dict[str, Any]], starting_balance: float) -> list[dict[str, Any]]:
+    """Per-DAY calendar cells (Mon–Fri grid the UI groups by ISO week) with PnL, trade counts and a
+    clickable AI insight for each day. Built from the same real closed-trade history as the heatmap."""
+    import datetime as _dt
+    _wd = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    day_map: dict[str, dict[str, Any]] = {}
+    for t in history:
+        cts = int(t.get("closeTimestamp", 0) or 0)
+        if not cts:
+            continue
+        try:
+            dd = _dt.datetime.utcfromtimestamp(cts)
+        except Exception:
+            continue
+        iso_year, iso_week, iso_wd = dd.isocalendar()
+        if iso_wd > 5:   # weekend (XAUUSD closed) — skip
+            continue
+        key = dd.strftime("%Y-%m-%d")
+        cell = day_map.setdefault(key, {"date": key, "week": f"W{iso_week:02d}", "dow": _wd[iso_wd - 1],
+                                        "pnl": 0.0, "trades": 0, "wins": 0, "losses": 0, "_t": []})
+        cell["pnl"] = round(cell["pnl"] + float(t.get("pnlUsd", 0) or 0), 2)
+        cell["trades"] += 1
+        p = float(t.get("pnlUsd", 0) or 0)
+        if p > 0:
+            cell["wins"] += 1
+        elif p < 0:
+            cell["losses"] += 1
+        cell["_t"].append(t)
+    base = max(starting_balance, 1.0)
+    out: list[dict[str, Any]] = []
+    for key in sorted(day_map.keys()):
+        cell = day_map[key]
+        cell["pct"] = round(cell["pnl"] / base * 100, 2)
+        cell.update(_day_insight(cell.pop("_t")))
+        out.append(cell)
+    return out[-40:]   # last ~8 trading weeks
+
+
 def _live_analytics(date_from: str | None = None, date_to: str | None = None) -> dict[str, Any]:
     if not mt5_bridge.status().get("connected") and _demo_enabled():
         return demo_data.analytics(date_from, date_to)
@@ -1880,6 +1973,7 @@ def _live_analytics(date_from: str | None = None, date_to: str | None = None) ->
         "equityCurve": equity_curve,
         "drawdown": drawdown_series,
         "returns": returns,
+        "returnsCalendar": _build_returns_calendar(history, starting_balance - net),
         "topStrategies": top_strategies,
         "sessions": sessions,
         "executionQuality": execution_quality,
@@ -3066,7 +3160,12 @@ def job_cancel(jid: str):
 @app.post("/api/backtest/validate-async")
 def backtest_validate_async(payload: dict[str, Any] = Body(default={})):
     jid = _new_job("validate")
-    _run_job(jid, lambda prog: _validate_impl(payload, prog))
+    def fn(prog):
+        r = _validate_impl(payload, prog)
+        if isinstance(r, dict) and r.get("ok"):
+            BACKTEST_STATE.update(lastRun=time.time(), lastValidation=r, lastResult=r)
+        return r
+    _run_job(jid, fn)
     return {"ok": True, "jobId": jid}
 
 
@@ -3079,9 +3178,20 @@ def backtest_run_async(payload: dict[str, Any] = Body(default={})):
         r["dataSource"] = "mt5_history" if mt5_bridge.status().get("connected") else "synthetic_demo"
         if r.get("dataSource") == "synthetic_demo":
             r["note"] = "Synthetic candles (MT5 not connected) — numbers are illustrative. Connect MT5 for a real edge measurement."
+        if isinstance(r, dict) and r.get("ok"):
+            BACKTEST_STATE.update(lastRun=time.time(), lastResult=r)
         return r
     _run_job(jid, fn)
     return {"ok": True, "jobId": jid}
+
+
+@app.get("/api/backtest/last")
+def backtest_last():
+    """The most recent Backtest / Validate result, so the Backtest tab can restore it after you
+    click away or reload — the same persistence the Strategy Lab uses."""
+    return {"ok": True, "lastRun": BACKTEST_STATE.get("lastRun"),
+            "result": BACKTEST_STATE.get("lastResult"),
+            "validation": BACKTEST_STATE.get("lastValidation")}
 
 
 @app.post("/api/lab/run-async")
