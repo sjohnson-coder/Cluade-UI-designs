@@ -252,7 +252,7 @@ def _default_settings() -> dict[str, Any]:
         "appearance": {"theme": "light", "accentColor": "gold", "density": "comfortable"},
         "trading": {"symbol": os.getenv("MT5_SYMBOL", "XAUUSD"), "timeframe": "M15", "orderType": "Market", "riskPerTrade": 0.5, "slippageTolerance": 0.5, "magicNumber": mt5_bridge.magic, "commentPrefix": mt5_bridge.comment_prefix, "autoRefreshData": True, "autoResumeOnStart": False, "allowedSessions": ["Asia", "London", "London / New York", "New York"], "tradeManagement": {"autoBreakEven": True, "breakEvenAtRR": 0.4, "autoTrailing": True, "trailStartRR": 0.5, "trailAtrMult": 1.0, "trailStructure": "M15", "fastFailEnabled": True, "fastFailLossR": -0.5, "fastFailNoProgressCandles": 3, "partialTakeProfit": True, "tpPushEnabled": True, "protectStartAtr": 0.4, "profitLockFraction": 0.35, "trailStartAtr": 0.7, "smartRecoveryRoom": True, "recoveryRoomAtr": 0.3}},
         "execution": {"dryRun": not mt5_bridge.live_enabled, "liveTradingEnabled": mt5_bridge.live_enabled, "autoTradingEnabled": mt5_bridge.auto_trading_enabled, "requireAiApproval": True, "manualExecutionEnabled": False},
-        "ai": {"strictnessMode": "balanced", "allowScoutEntries": True, "scoutConfidence": 72.0, "standardConfidence": 78.0, "sniperConfidence": 90.0, "minRiskReward": 1.5, "maxSpread": 0.40, "showBlockedReasons": True, "heartbeatEnabled": True, "firstEntryLotMode": "base_lot_only", "respectAllowedSessions": True, "rangeAwareness": True, "rangeFade": False, "rangeTopPos": 0.78, "rangeBottomPos": 0.22, "costDiscipline": True, "maxSpreadAtrFrac": 0.045, "confluenceByMode": {"relaxed": 2, "balanced": 3, "strict": 4, "sniper": 5}},
+        "ai": {"strictnessMode": "balanced", "allowScoutEntries": True, "scoutConfidence": 72.0, "standardConfidence": 78.0, "sniperConfidence": 90.0, "minRiskReward": 1.5, "maxSpread": 0.40, "showBlockedReasons": True, "heartbeatEnabled": True, "firstEntryLotMode": "base_lot_only", "respectAllowedSessions": True, "rangeAwareness": True, "rangeFade": False, "rangeTopPos": 0.78, "rangeBottomPos": 0.22, "costDiscipline": True, "maxSpreadAtrFrac": 0.05, "commissionPrice": 0.0, "confluenceByMode": {"relaxed": 2, "balanced": 3, "strict": 4, "sniper": 5}},
         # Automation discipline: stop revenge-stacking and run the AI recovery monitor.
         "automation": {
             "postLossCooldownMinutes": 10.0,     # forced reanalysis pause after any loss
@@ -736,7 +736,8 @@ def _trade_chart_image(side: str, entry: Any, sl: Any, tps: list[Any], subtitle:
 
 def _telegram_rich_trade_alert(headline: str, side: str, symbol: str, volume: Any,
                                entry: Any, sl: Any, tps: list[Any], confidence: Any,
-                               strategy: str, reason: str, kind: str = "info") -> None:
+                               strategy: str, reason: str, kind: str = "info",
+                               confidence_label: str = "Confidence") -> None:
     """Send a full Telegram alert: side/entry/SL/TP/confidence/strategy/reason + chart."""
     tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
     if not tg.get("enabled"):
@@ -754,7 +755,7 @@ def _telegram_rich_trade_alert(headline: str, side: str, symbol: str, volume: An
     if tp_line:
         lines.append(tp_line)
     if confidence:
-        lines.append(f"Confidence: *{int(float(confidence))}%*")
+        lines.append(f"{confidence_label}: *{int(float(confidence))}%*")
     if strategy:
         lines.append(f"Strategy: _{strategy}_")
     if reason:
@@ -1300,15 +1301,21 @@ def _send_wait_forecast() -> None:
         return
     plan = dec.get("tradePlan", {}) if isinstance(dec.get("tradePlan"), dict) else {}
     bias = str(dec.get("computedSide") or dec.get("side") or "WAIT").upper()
-    strat = (dec.get("selectedStrategy", {}) or {}).get("name") or "Standby"
+    regime = dec.get("marketRegime") or "—"
     blocks = dec.get("decisionBlocks") or []
-    reason = "Waiting — " + ("; ".join(str(b) for b in blocks[:2]) if blocks else (dec.get("reason") or "no clean setup yet"))
+    # Make it unmistakable that this is a PREVIEW of a setup the bot is watching — NOT a trade signal,
+    # and NOT a missed trade. Confidence here is signal quality; the blocks below are why it's held.
+    why = "; ".join(str(b) for b in blocks[:2]) if blocks else (dec.get("reason") or "no clean setup yet")
+    reason = (f"🚫 NOT TRADING — preview only. The bot has a {bias} *bias* here but is standing aside "
+              f"({regime}). Blocked by: {why}")
+    strat = f"Standing aside · {regime}"
     RECAP_STATE["lastWaitForecast"] = now
     base_lot = (SETTINGS_STATE.get("pyramiding", {}) or {}).get("baseLot", 0.01)
-    _telegram_rich_trade_alert("Forecast — waiting for trigger", bias if bias in {"BUY", "SELL"} else "WAIT",
+    _telegram_rich_trade_alert("Forecast — BLOCKED (preview only, not a trade)", bias if bias in {"BUY", "SELL"} else "WAIT",
                                dec.get("symbol", "XAUUSD"), base_lot, plan.get("entry"), plan.get("sl"),
                                [plan.get("tp1"), plan.get("tp2"), plan.get("tp3"), plan.get("tp4")],
-                               dec.get("confidence"), strat, reason, "info")
+                               dec.get("confidence"), strat, reason, "info",
+                               confidence_label="Signal quality (not a trade signal)")
 
 
 def _send_market_closed_update(reason: str) -> None:

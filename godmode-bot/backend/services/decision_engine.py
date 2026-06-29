@@ -590,9 +590,13 @@ class GoldDecisionEngine:
         self.min_take_score   = 66.0
         self.min_sniper_score = 88.0
         self.max_spread       = 0.40
-        # Adaptive cost discipline: also block when spread exceeds this fraction of ATR (cost/opportunity).
+        # Adaptive cost discipline: block when the round-trip cost (spread + commission) is too large a
+        # fraction of the trade's ACTUAL stop distance (R) — that fraction subtracts straight from
+        # expectancy-in-R. Measured against the real stop, not ATR, so a wide-stop trade isn't
+        # over-penalised and a tight-stop one isn't under-counted.
         self.cost_discipline  = True
-        self.max_spread_atr_frac = 0.045
+        self.max_spread_atr_frac = 0.05   # max cost as a fraction of the stop distance (R)
+        self.cost_commission  = 0.0       # broker commission per round trip, in PRICE units (0 = spread-only)
         self.min_rr           = 1.4
         self.min_confluence   = 3
         self.confluence_by_mode = {"relaxed": 2, "balanced": 3, "strict": 4, "sniper": 5}
@@ -668,7 +672,10 @@ class GoldDecisionEngine:
         self.min_session_score   = float(payload.get("minSessionScore",   p["sess"]))
         self.min_efficiency_ratio = float(payload.get("minEfficiencyRatio", p.get("eff", 0.28)))
         self.cost_discipline = bool(payload.get("costDiscipline", getattr(self, "cost_discipline", True)))
-        self.max_spread_atr_frac = float(payload.get("maxSpreadAtrFrac", getattr(self, "max_spread_atr_frac", 0.045)))
+        # Cost cap is now a fraction of the stop (R). Accept the new key, fall back to the old
+        # maxSpreadAtrFrac for continuity (same number, now measured against R≈ATR), then the default.
+        self.max_spread_atr_frac = float(payload.get("maxCostRiskFrac", payload.get("maxSpreadAtrFrac", getattr(self, "max_spread_atr_frac", 0.05))))
+        self.cost_commission = float(payload.get("commissionPrice", getattr(self, "cost_commission", 0.0)) or 0.0)
         self.range_awareness = bool(payload.get("rangeAwareness", self.range_awareness))
         self.range_fade = bool(payload.get("rangeFade", self.range_fade))
         self.range_top_pos = float(payload.get("rangeTopPos", self.range_top_pos))
@@ -691,6 +698,8 @@ class GoldDecisionEngine:
             "minEfficiencyRatio": self.min_efficiency_ratio,
             "costDiscipline": self.cost_discipline,
             "maxSpreadAtrFrac": self.max_spread_atr_frac,
+            "maxCostRiskFrac": self.max_spread_atr_frac,
+            "commissionPrice": getattr(self, "cost_commission", 0.0),
             "rangeAwareness": self.range_awareness,
             "rangeFade": self.range_fade,
             "rangeTopPos": self.range_top_pos,
@@ -827,16 +836,21 @@ class GoldDecisionEngine:
             hard_blocks.append("High-impact news blackout — no entries allowed")
         if spread > self.max_spread:
             hard_blocks.append(f"Spread too wide: {spread:.2f} (max {self.max_spread:.2f})")
-        # Adaptive COST DISCIPLINE: the spread must be a small fraction of the expected move (ATR),
-        # otherwise the round-trip cost eats the edge. This tightens automatically in quiet markets
-        # (where a wide spread is most damaging) and relaxes when the move potential is large. It does
-        # NOT invent edge — it just refuses trades whose cost/opportunity ratio is poor.
+        # Adaptive COST DISCIPLINE: the round-trip cost (spread + commission) must be a small fraction
+        # of THIS trade's actual stop distance (R), because that fraction subtracts straight from
+        # expectancy-in-R. Measuring against the real stop (not ATR) means a wide-stop trade isn't
+        # over-penalised and a tight-stop one isn't under-counted. It does NOT invent edge — it just
+        # refuses trades whose cost-to-risk ratio is poor.
         if getattr(self, "cost_discipline", True):
-            _atr = float(features.get("atr") or market.get("atr14", 12.0) or 12.0)
-            _frac = spread / max(_atr, 0.01)
-            if _frac > float(getattr(self, "max_spread_atr_frac", 0.045)):
-                hard_blocks.append(f"Cost discipline: spread {spread:.2f} is {(_frac*100):.1f}% of the {_atr:.1f}-ATR move "
-                                   f"(max {float(getattr(self, 'max_spread_atr_frac', 0.045))*100:.1f}%) — the cost would eat the edge.")
+            _risk = abs(entry - sl)
+            _comm = float(getattr(self, "cost_commission", 0.0) or 0.0)
+            _cost = spread + _comm
+            _cap = float(getattr(self, "max_spread_atr_frac", 0.05))
+            _frac = _cost / max(_risk, 0.01)
+            if _risk > 0 and _frac > _cap:
+                _comm_txt = f" + {_comm:.2f} comm" if _comm > 0 else ""
+                hard_blocks.append(f"Cost discipline: cost {_cost:.2f} (spread {spread:.2f}{_comm_txt}) is {(_frac*100):.1f}% of the "
+                                   f"{_risk:.2f} stop / R (max {_cap*100:.1f}%) — the cost would eat the edge.")
         if not cleanliness.get("isClean", True):
             hard_blocks.append("Market cleanliness: " + "; ".join(cleanliness.get("dirtyReasons", [])))
         if rr < eff_rr:
