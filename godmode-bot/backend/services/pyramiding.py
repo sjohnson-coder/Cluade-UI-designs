@@ -25,6 +25,8 @@ class PyramidSettings:
     lot_step: float = 0.01
     max_lot: float = 0.05
     max_adds: int = 3
+    final_add_max_lot: bool = True   # True: final add jumps to max_lot ("max-lot pressure" leg).
+                                     # False: every add climbs by lot_step, capped at max_lot (no jump).
 
     # Global gates.
     min_win_streak_for_aggressive: int = 1   # require 1 recent bot win (was 2 — never met live)
@@ -116,6 +118,7 @@ class AIPyramidingEngine:
             "lotStep": "lot_step",
             "maxLot": "max_lot",
             "maxAdds": "max_adds",
+            "finalAddMaxLot": "final_add_max_lot",
             "maxSpread": "max_spread",
             "enabled": "enabled",
             "minWinStreakForAggressive": "min_win_streak_for_aggressive",
@@ -156,13 +159,32 @@ class AIPyramidingEngine:
             if normalized in data:
                 data[normalized] = value
         self.settings = PyramidSettings(**data)
+        # Auto-fit the basket lot cap to the ladder so raising maxLot / maxAdds / lotStep actually
+        # lets the final add through — UNLESS the user set maxTotalLots explicitly in THIS update
+        # (then we respect their number). The risk-% / exposure caps remain the real governors.
+        explicit_total = any(k in payload for k in ("maxTotalLots", "max_total_lots"))
+        if not explicit_total:
+            natural = self.natural_basket_lots()
+            if self.settings.max_total_lots < natural:
+                self.settings.max_total_lots = natural
         return self.settings_dict(camel=True)
+
+    def natural_basket_lots(self) -> float:
+        """Sum of the full ladder (base + every add) at current settings — the lot count a
+        complete, fully-pressed pyramid would reach. Used to keep maxTotalLots consistent."""
+        s = self.settings
+        total = s.base_lot
+        for i in range(1, s.max_adds + 1):
+            total += self._lot_for_add(i, s.base_lot)
+        return round(total, 2)
 
     def settings_dict(self, camel: bool = False) -> dict[str, Any]:
         data = asdict(self.settings)
         if not camel:
             return data
-        return {self._camel(k): v for k, v in data.items()}
+        out = {self._camel(k): v for k, v in data.items()}
+        out["naturalBasketLots"] = self.natural_basket_lots()  # read-only hint for the UI
+        return out
 
     def evaluate(
         self,
@@ -483,8 +505,11 @@ class AIPyramidingEngine:
         s = self.settings
         if add_number <= 0:
             return round(base_lot, 2)
-        if add_number >= s.max_adds:
-            return round(min(s.max_lot, max(base_lot + s.lot_step * add_number, s.max_lot)), 2)
+        # The final add is a deliberate "max-lot pressure" leg ONLY when final_add_max_lot is on;
+        # otherwise every add (including the final one) climbs by lot_step, capped at max_lot — so
+        # raising max_lot scales the whole ladder smoothly instead of one surprise jump.
+        if add_number >= s.max_adds and s.final_add_max_lot:
+            return round(s.max_lot, 2)
         return round(min(s.max_lot, base_lot + s.lot_step * add_number), 2)
 
     def _confidence_threshold(self, add_number: int) -> float:
@@ -536,8 +561,17 @@ class AIPyramidingEngine:
         return s.max_extension_atr_final_add
 
     def _estimate_add_risk_pct(self, position: dict[str, Any], next_lot: float, base_lot: float) -> float:
+        # Risk scales with BOTH the add's lot size AND its own stop distance. A pyramid add placed
+        # behind nearby structure (tighter stop than the base trade) risks proportionally less; a
+        # wider add stop risks more. When stop distances are supplied we model that explicitly;
+        # otherwise we fall back to the lot-ratio-only approximation.
         base_risk_pct = float(position.get("baseRiskPct", position.get("riskPct", 0.35)) or 0.35)
-        return round(base_risk_pct * (next_lot / max(base_lot, 0.01)), 3)
+        lot_ratio = next_lot / max(base_lot, 0.01)
+        base_sl = float(position.get("baseStopDistance", 0) or 0)
+        add_sl = float(position.get("addStopDistance", 0) or 0)
+        if base_sl > 0 and add_sl > 0:
+            return round(base_risk_pct * lot_ratio * (add_sl / base_sl), 3)
+        return round(base_risk_pct * lot_ratio, 3)
 
     def _profit_buffer_check(
         self,

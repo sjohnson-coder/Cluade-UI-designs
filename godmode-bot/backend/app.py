@@ -379,7 +379,8 @@ def _apply_data_feed_env() -> dict[str, Any]:
 _apply_data_feed_env()  # sync env <- persisted Data Feeds settings at startup
 
 AUTO_TRADE_STATE: dict[str, Any] = {"enabled": False, "lastFire": 0.0, "lastResult": None, "cooldownSeconds": 15,
-                                    "lossStreak": 0, "winStreak": 0, "postLossUntil": 0.0, "pausedUntil": 0.0, "lastLoser": None}
+                                    "lossStreak": 0, "winStreak": 0, "postLossUntil": 0.0, "pausedUntil": 0.0, "lastLoser": None,
+                                    "previousPyramidAddFailed": False}
 AUTO_TRADE_HEARTBEAT: list[dict[str, Any]] = []
 
 NOTIFICATIONS: list[dict[str, Any]] = []
@@ -645,6 +646,7 @@ def _register_close_outcome(ticket: Any, pnl: float, side: Any, price: Any, sess
         AUTO_TRADE_STATE["dayKey"] = day
         AUTO_TRADE_STATE["dailyRealizedPnl"] = 0.0
         AUTO_TRADE_STATE["dailyHaltAlerted"] = False
+        AUTO_TRADE_STATE["previousPyramidAddFailed"] = False   # fresh day → clear the add lock
     AUTO_TRADE_STATE["dailyRealizedPnl"] = round(float(AUTO_TRADE_STATE.get("dailyRealizedPnl", 0.0)) + pnl, 2)
     if pnl < 0:
         streak = int(AUTO_TRADE_STATE.get("lossStreak", 0)) + 1
@@ -2706,6 +2708,10 @@ def _auto_trade_tick(reason: str = "manual_tick") -> dict[str, Any]:
     # Read the actual open bot position (if any) to pass real profitR to pyramid + decision engine.
     open_positions = mt5_bridge.open_positions(bot_only=True) if mt5_bridge.status().get("connected") else []
     active_position: dict[str, Any] | None = open_positions[0] if open_positions else None
+    # Flat = the previous basket is fully closed → a brand-new basket starts clean, so clear the
+    # "a pyramid add failed this session" lock (it only ever guards the currently-open basket).
+    if not active_position and AUTO_TRADE_STATE.get("previousPyramidAddFailed"):
+        AUTO_TRADE_STATE["previousPyramidAddFailed"] = False
 
     # Compute actual profitR from the live position so the pyramid engine
     # cannot be fooled by empty/default values.
@@ -2722,12 +2728,18 @@ def _auto_trade_tick(reason: str = "manual_tick") -> dict[str, Any]:
         prot = POSITION_PROTECTION_STATE.get(str(active_position.get("ticket")), {})
         be_moved = bool(prot.get("beMoved"))
         base_lot = float((SETTINGS_STATE.get("pyramiding", {}) or {}).get("baseLot") or 0.01)
+        # SL-distance-aware add risk (P5): the base trade's real entry→SL distance, and the add's own
+        # structural stop estimate (~current ATR — a fresh add is stopped behind nearby structure).
+        atr_now = float(market.get("atr14") or market.get("atr") or 0) or 0.0
         active_position = {**active_position, "profitR": round(float_r, 3), "floatingR": round(float_r, 3),
                            "beMoved": be_moved, "breakEvenProtected": be_moved,
                            "winStreak": int(AUTO_TRADE_STATE.get("winStreak", 0)),
                            "winsSinceLastLoss": int(AUTO_TRADE_STATE.get("winStreak", 0)),
                            "baseLot": base_lot, "currentLots": float(active_position.get("lots") or base_lot),
                            "lockedProfitR": round(max(0.0, float_r - 0.1), 2) if be_moved else 0.0,
+                           "baseStopDistance": round(risk, 5),
+                           "addStopDistance": round(atr_now, 5) if atr_now > 0 else round(risk, 5),
+                           "previousPyramidAddFailed": bool(AUTO_TRADE_STATE.get("previousPyramidAddFailed")),
                            "allPriorAddsProtected": True, "structureValid": True}
 
     matrix = _action_matrix(position=active_position or {}, market=market)
@@ -2771,7 +2783,9 @@ def _auto_trade_tick(reason: str = "manual_tick") -> dict[str, Any]:
         profit_r = float(active_position.get("profitR", 0) or 0)
         pyr = matrix.get("pyramiding", {}) if isinstance(matrix.get("pyramiding"), dict) else {}
         pyr_settings = SETTINGS_STATE.get("pyramiding", {}) if isinstance(SETTINGS_STATE.get("pyramiding"), dict) else {}
-        min_profit_r = float(pyr_settings.get("minProfitRToAdd", 0.75) or 0.75)
+        # Single source of truth (P3): the app pre-gate uses the SAME first-add profit-R floor the
+        # pyramid engine enforces (minProfitRFirstAdd), so they can never disagree at the margin.
+        min_profit_r = float(pyr_settings.get("minProfitRFirstAdd", pyramiding_engine.settings.min_profit_r_first_add) or 0.80)
         # Same-direction check: only add in the direction of the open trade
         open_dir = str(active_position.get("direction", "")).upper()
         sig_dir = str(decision.get("side", market.get("side", ""))).upper()
@@ -2842,6 +2856,12 @@ def _auto_trade_tick(reason: str = "manual_tick") -> dict[str, Any]:
         AUTO_TRADE_STATE["lastFire"] = now
         _capture_entry_context(result, decision, payload, entry_type, strategy_name)
         result["event"] = _notify_trade_event("auto_trade", result, payload)
+    elif is_pyramid_add and not result.get("dryRun"):
+        # A real pyramid add was rejected/failed at the broker → lock further adds on THIS basket
+        # (the engine's "previous pyramid add failed" gate). Cleared when the basket goes flat or a
+        # new day starts. A protected winner must not keep retrying a failing add into the spread.
+        AUTO_TRADE_STATE["previousPyramidAddFailed"] = True
+        _management_alert("Pyramid add failed", "A protected pyramid add was rejected at the broker — further adds on this basket are locked until it closes. The base trade stays protected.", "danger")
     wrapped = {"ok": bool(result.get("ok")), "reason": reason, "message": result.get("message", "Auto trade evaluated."), "quality": quality, "scoutEntry": quality == "SCOUT", "actionMatrix": matrix, "execution": result, "event": result.get("event"), "sizing": vol_info}
     wrapped["heartbeat"] = _record_auto_heartbeat(wrapped)
     return wrapped
