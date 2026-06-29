@@ -96,7 +96,7 @@ def _pearson(xs: list[float], ys: list[float]) -> float:
 
 # ── trade simulation ────────────────────────────────────────────────────────--
 def _simulate(candles: list[dict[str, Any]], entry_i: int, dec: dict[str, Any],
-              spread: float, commission: float, max_hold: int) -> dict[str, Any] | None:
+              spread: float, commission: float, max_hold: int, slippage: float = 0.0) -> dict[str, Any] | None:
     plan = dec.get("tradePlan", {})
     side = str(dec.get("side", "")).upper()
     entry = float(candles[entry_i]["close"])
@@ -105,7 +105,10 @@ def _simulate(candles: list[dict[str, Any]], entry_i: int, dec: dict[str, Any],
     risk = abs(entry - sl)
     if risk <= 0 or side not in ("BUY", "SELL"):
         return None
-    cost_R = (spread + commission) / risk  # round-trip cost expressed in R
+    # Round-trip cost in R: spread + commission + slippage on BOTH fills (entry + exit). Modelling
+    # slippage per fill (×2) makes the result honest for fast/scalping styles where the fill you
+    # actually get is worse than the candle price — small moves are very sensitive to it.
+    cost_R = (spread + commission + 2.0 * max(0.0, slippage)) / risk
     portion = 0.25
     realized = 0.0
     remaining = 1.0
@@ -202,6 +205,7 @@ class CostAwareBacktester:
         max_hold = int(p.get("maxHoldBars", 96))
         spread = float(p.get("spread", 0.20))
         commission = float(p.get("commission", 0.0))
+        slippage = float(p.get("slippage", 0.0) or 0.0)
         allowed = p.get("allowedSessions") or ["Asia", "London", "London / New York", "New York"]
         trades: list[dict[str, Any]] = []
         i = warmup
@@ -230,7 +234,7 @@ class CostAwareBacktester:
             except Exception:
                 i += 1; continue
             if dec.get("action") == "TAKE_TRADE" and str(dec.get("side")) in ("BUY", "SELL"):
-                sim = _simulate(candles, i, dec, spread, commission, max_hold)
+                sim = _simulate(candles, i, dec, spread, commission, max_hold, slippage)
                 if sim:
                     trades.append({
                         "strategy": (dec.get("selectedStrategy", {}) or {}).get("name", "GodMode Bot"),
@@ -304,7 +308,7 @@ class CostAwareBacktester:
             "method": "cost-aware walk-forward replay",
             "candles": len(candles),
             "span": candle_span,
-            "costs": {"spreadPrice": float(p.get("spread", 0.20)), "commissionPrice": float(p.get("commission", 0.0))},
+            "costs": {"spreadPrice": float(p.get("spread", 0.20)), "commissionPrice": float(p.get("commission", 0.0)), "slippagePrice": float(p.get("slippage", 0.0) or 0.0)},
             "totalTrades": len(trades),
             "overall": overall,
             "assessment": assessment,

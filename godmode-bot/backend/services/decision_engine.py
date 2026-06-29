@@ -238,6 +238,41 @@ def _htf_bias(h4_candles: list[dict[str, Any]] | None, d1_candles: list[dict[str
     }
 
 
+def _wilder_adx(highs: list[float], lows: list[float], closes: list[float], n: int = 14) -> float:
+    """Compact Wilder ADX(14) — the standard trend-strength gauge (0–100). >25 = trending, <20 = range.
+    Pure stdlib. Returns 0 when there isn't enough data."""
+    if len(highs) < 2 * n + 2:
+        return 0.0
+    plus_dm, minus_dm, trs = [], [], []
+    for i in range(1, len(highs)):
+        up = highs[i] - highs[i - 1]
+        dn = lows[i - 1] - lows[i]
+        plus_dm.append(up if (up > dn and up > 0) else 0.0)
+        minus_dm.append(dn if (dn > up and dn > 0) else 0.0)
+        trs.append(max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1])))
+    if len(trs) < n:
+        return 0.0
+    def _smooth(xs: list[float]) -> list[float]:
+        s = sum(xs[:n]); out = [s]
+        for x in xs[n:]:
+            s = s - s / n + x; out.append(s)
+        return out
+    str_, spdm, smdm = _smooth(trs), _smooth(plus_dm), _smooth(minus_dm)
+    dxs = []
+    for tr, pdm, mdm in zip(str_, spdm, smdm):
+        if tr <= 0:
+            continue
+        pdi, mdi = 100 * pdm / tr, 100 * mdm / tr
+        denom = pdi + mdi
+        dxs.append(100 * abs(pdi - mdi) / denom if denom > 0 else 0.0)
+    if len(dxs) < n:
+        return round(sum(dxs) / len(dxs), 1) if dxs else 0.0
+    adx = sum(dxs[:n]) / n
+    for dx in dxs[n:]:
+        adx = (adx * (n - 1) + dx) / n
+    return round(adx, 1)
+
+
 def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dict[str, Any]] | None = None, range_lookback: int = 32) -> dict[str, Any]:
     """Extract full institutional feature set from candles."""
     if not candles or len(candles) < 10:
@@ -295,6 +330,15 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
         prev_c = closes[i - 1]
         trs.append(max(highs[i] - lows[i], abs(highs[i] - prev_c), abs(lows[i] - prev_c)))
     atr = sum(trs[-14:]) / 14 if len(trs) >= 14 else max(1.0, (max(highs[-10:]) - min(lows[-10:])) / 10)
+
+    # Enhanced regime inputs: ADX trend strength + a volatility percentile (current vs recent history),
+    # so the classifier can separate "trending" from "ranging" and "compression" from "expansion".
+    adx = _wilder_adx(highs, lows, closes, 14)
+    atr_percentile = 50.0
+    if len(trs) >= 30:
+        recent_tr = sum(trs[-5:]) / 5.0
+        hist = sorted(trs[-120:])
+        atr_percentile = round(sum(1 for x in hist if x <= recent_tr) / len(hist) * 100, 1)
 
     atr_dist_50 = abs(price - ema50) / max(atr, 0.01)
     atr_dist_20 = abs(price - ema20) / max(atr, 0.01)   # distance from the pullback anchor
@@ -541,6 +585,9 @@ def _compute_candle_features(candles: list[dict[str, Any]], h1_candles: list[dic
         "rangeWidthAtr": round(range_width_atr, 2),
         "confluenceCount": confluence_count,
         "atr": round(atr, 3),
+        "adx": adx,
+        "trendStrength": adx,
+        "atrPercentile": atr_percentile,
         "computedSide": computed_side,
         "rsi14": rsi,
         "rsiOverbought": rsi_overbought,
@@ -597,6 +644,9 @@ class GoldDecisionEngine:
         self.cost_discipline  = True
         self.max_spread_atr_frac = 0.05   # max cost as a fraction of the stop distance (R)
         self.cost_commission  = 0.0       # broker commission per round trip, in PRICE units (0 = spread-only)
+        # Cross-asset hard filter: when a LIVE DXY/US10Y feed shows a clear gold bias, block trades that
+        # fight it (only when the feed is genuinely live — no feed = no filter). Opt-in.
+        self.macro_hard_filter = False
         self.min_rr           = 1.4
         self.min_confluence   = 3
         self.confluence_by_mode = {"relaxed": 2, "balanced": 3, "strict": 4, "sniper": 5}
@@ -676,6 +726,7 @@ class GoldDecisionEngine:
         # maxSpreadAtrFrac for continuity (same number, now measured against R≈ATR), then the default.
         self.max_spread_atr_frac = float(payload.get("maxCostRiskFrac", payload.get("maxSpreadAtrFrac", getattr(self, "max_spread_atr_frac", 0.05))))
         self.cost_commission = float(payload.get("commissionPrice", getattr(self, "cost_commission", 0.0)) or 0.0)
+        self.macro_hard_filter = bool(payload.get("macroHardFilter", getattr(self, "macro_hard_filter", False)))
         self.range_awareness = bool(payload.get("rangeAwareness", self.range_awareness))
         self.range_fade = bool(payload.get("rangeFade", self.range_fade))
         self.range_top_pos = float(payload.get("rangeTopPos", self.range_top_pos))
@@ -700,6 +751,7 @@ class GoldDecisionEngine:
             "maxSpreadAtrFrac": self.max_spread_atr_frac,
             "maxCostRiskFrac": self.max_spread_atr_frac,
             "commissionPrice": getattr(self, "cost_commission", 0.0),
+            "macroHardFilter": getattr(self, "macro_hard_filter", False),
             "rangeAwareness": self.range_awareness,
             "rangeFade": self.range_fade,
             "rangeTopPos": self.range_top_pos,
@@ -936,6 +988,14 @@ class GoldDecisionEngine:
                 soft_blocks.append(msg)
         if calibration_note:
             soft_blocks.append(calibration_note)
+        # Cross-asset hard filter (opt-in): only when a LIVE DXY/US10Y feed shows a clear gold bias,
+        # refuse a trade that fights it (don't buy gold when the dollar/yields say down, and vice-versa).
+        if getattr(self, "macro_hard_filter", False) and str(macro.get("status")) == "live" and side in ("BUY", "SELL"):
+            mb = str(macro.get("macroGoldBias", "neutral")).lower()
+            if side == "BUY" and mb == "bearish":
+                hard_blocks.append(f"Cross-asset filter: DXY/US10Y read is BEARISH gold — not buying against macro ({macro.get('detail','')}).")
+            elif side == "SELL" and mb == "bullish":
+                hard_blocks.append(f"Cross-asset filter: DXY/US10Y read is BULLISH gold — not selling against macro ({macro.get('detail','')}).")
 
         # Never pyramid into a loser
         if active_position:
@@ -1014,6 +1074,9 @@ class GoldDecisionEngine:
             "strategyCandidates": candidates,
             "strategyEvaluations": strategy_evaluations,
             "marketRegime":       regime,
+            "regimeConfidence":   features.get("regimeConfidence"),
+            "trendStrengthAdx":   features.get("adx"),
+            "atrPercentile":      features.get("atrPercentile"),
             "sessionName":        session_name,
             "sessionScore":       session_score,
             "features":           features,
@@ -1066,34 +1129,46 @@ class GoldDecisionEngine:
         }
 
     def _classify_regime(self, market: dict[str, Any], vol: dict[str, Any], calendar_status: dict[str, Any], features: dict[str, Any]) -> str:
-        raw       = str(market.get("regime", "")).lower()
+        """Enhanced multi-factor regime classifier: blends ADX trend strength, a volatility percentile,
+        Kaufman efficiency, the HTF stack and the vol regime into one label + a 0–100 confidence
+        (stashed in features['regimeConfidence']). Deterministic and explainable — not a black box."""
+        raw        = str(market.get("regime", "")).lower()
         vol_regime = str(vol.get("regime", "")).lower()
-        session   = str(market.get("session", "")).lower()
+        session    = str(market.get("session", "")).lower()
+        adx  = float(features.get("adx", 0) or 0)
+        atrp = float(features.get("atrPercentile", 50) or 50)
+        eff  = float(features.get("efficiencyRatio", 0.5) or 0.5)
+        htf  = bool(features.get("htfAligned"))
+        bullish = bool(features.get("structureBullish") or features.get("computedSide") == "BUY")
+        def _conf(c: float) -> None:
+            features["regimeConfidence"] = int(max(0, min(100, round(c))))
         if calendar_status.get("isBlackout"):
-            return "News Blackout"
-        if "compression" in vol_regime or "low volat" in vol_regime:
+            _conf(100); return "News Blackout"
+        if "extreme" in vol_regime or atrp >= 97:
+            _conf(90); return "Extreme Volatility / Reduce Size"
+        # Strong trend: ADX confirms strength AND price moves efficiently AND structure/HTF agrees.
+        if adx >= 25 and eff >= 0.34 and (htf or features.get("trendAligned")):
+            _conf(55 + (adx - 25) * 1.6 + eff * 30)
+            return "Strong Bullish Trend" if bullish else "Strong Bearish Trend"
+        # Compression: quiet tape with no trend strength.
+        if atrp <= 25 or "compression" in vol_regime or "low volat" in vol_regime or (adx < 18 and eff < 0.24):
+            _conf(55 + (25 - min(atrp, 25)) + (20 - min(adx, 20)) * 1.5)
             return "Compression / Wait"
-        if "extreme" in vol_regime:
-            return "Extreme Volatility / Reduce Size"
-        if "high volat" in vol_regime:
+        # Expansion: loud tape with some directional push.
+        if (atrp >= 80 or "high volat" in vol_regime) and adx >= 18:
+            _conf(50 + (atrp - 80) + adx)
             return "Volatility Expansion"
-        if features.get("htfAligned") and (features.get("momentumExpanding") or features.get("trendAligned")):
-            # Use the EMA side to label direction — a clean efficient trend may not print
-            # textbook higher-highs/lows yet still be a strong directional move.
-            if features.get("structureBullish") or features.get("computedSide") == "BUY":
-                return "Strong Bullish Trend"
-            return "Strong Bearish Trend"
+        # Weak trend.
+        if adx >= 18 and (htf or features.get("trendAligned") or "bullish" in raw or "bearish" in raw):
+            _conf(45 + (adx - 18) * 2)
+            return "Weak Bullish" if (bullish or "bullish" in raw) else "Weak Bearish"
         if features.get("asianRange", {}).get("defined") and "london" in session:
-            return "London Liquidity Window"
-        if "bullish" in raw:
-            return "Weak Bullish"
-        if "bearish" in raw:
-            return "Weak Bearish"
+            _conf(50); return "London Liquidity Window"
         if "london" in session:
-            return "London Liquidity Window"
+            _conf(45); return "London Liquidity Window"
         if "asia" in session:
-            return "Asian Range"
-        return "Range / Wait"
+            _conf(45); return "Asian Range"
+        _conf(40); return "Range / Wait"
 
     _PREFERRED_MAP = {
         "Strong Bullish Trend": ["Liquidity Sweep + Order Block Retest", "HTF Trend Continuation", "FVG Fill Continuation"],
@@ -1150,8 +1225,12 @@ class GoldDecisionEngine:
                          "liveWinRate": 100.0, "expectancyR": 0.0, "sessionFit": True, "trades": 0,
                          "source": "protection", "reason": "Capital protection — news blackout or dirty market."}]
         preferred = self._preferred_for_regime(regime, calendar_status, cleanliness)
-        session_name = str(market.get("session", "")).lower()
+        session_raw = str(market.get("session", ""))
+        session_name = session_raw.lower()
         mem_by_name = {row.get("name"): row for row in (memory.get("strategyPerformance") or [])}
+        # Per-SESSION learning: prefer a strategy's win-rate IN THIS SESSION once it has enough samples,
+        # so the picker adapts to which strategy actually works in London vs NY vs Asia.
+        mem_by_sess = {row.get("name"): row for row in (memory.get("sessionStrategyPerformance") or [])}
         regime_l = regime.lower()
         ranked: list[dict[str, Any]] = []
         for s in enabled:
@@ -1174,7 +1253,16 @@ class GoldDecisionEngine:
             mem = mem_by_name.get(name)
             trades = int(mem.get("trades", 0)) if mem else 0
             cat_wr = float(s.get("winRate", 60) or 60)
-            live_wr = float(mem.get("winRate", cat_wr)) if (mem and trades >= 5) else cat_wr
+            # session-specific record for THIS strategy in THIS session (e.g. "London|HTF Trend Continuation")
+            sess_mem = mem_by_sess.get(f"{session_raw}|{name}")
+            sess_trades = int(sess_mem.get("trades", 0)) if sess_mem else 0
+            wr_source = "catalog"
+            if sess_mem and sess_trades >= 5:
+                live_wr = float(sess_mem.get("winRate", cat_wr)); wr_source = "session_memory"
+            elif mem and trades >= 5:
+                live_wr = float(mem.get("winRate", cat_wr)); wr_source = "live_memory"
+            else:
+                live_wr = cat_wr
             exp_r = self._parse_expectancy(s.get("expectancy"))
             best_sessions = [str(x).lower() for x in s.get("bestSessions", [])]
             session_fit = bool(session_name) and any(b in session_name or session_name in b for b in best_sessions)
@@ -1182,7 +1270,7 @@ class GoldDecisionEngine:
             ranked.append({
                 "strategy": s, "name": name, "score": round(score, 1), "fit": round(fit, 2),
                 "liveWinRate": round(live_wr, 1), "expectancyR": exp_r, "sessionFit": session_fit,
-                "trades": trades, "source": "live_memory" if (mem and trades >= 5) else "catalog",
+                "trades": trades, "sessionTrades": sess_trades, "source": wr_source,
             })
         ranked.sort(key=lambda x: x["score"], reverse=True)
         return ranked

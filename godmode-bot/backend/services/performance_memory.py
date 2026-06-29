@@ -130,12 +130,14 @@ class PerformanceMemory:
         wins = [r for r in rows if r[6] == "WIN" or (r[4] is not None and r[4] > 0)]
         by_strategy: dict[str, list] = {}
         by_session: dict[str, list] = {}
+        by_session_strategy: dict[str, list] = {}   # "<session>|<strategy>" → rows (per-session learning)
         spreads: list[float] = []
         slips: list[float] = []
         calibration_bins: dict[str, dict[str, int]] = {}
         for r in rows:
             by_strategy.setdefault(r[0] or "Unknown", []).append(r)
             by_session.setdefault(r[1] or "Unknown", []).append(r)
+            by_session_strategy.setdefault(f"{r[1] or 'Unknown'}|{r[0] or 'Unknown'}", []).append(r)
             if r[2] is not None:
                 spreads.append(float(r[2]))
             if r[3] is not None:
@@ -164,6 +166,7 @@ class PerformanceMemory:
             "winRate": round(len(wins) / max(total, 1) * 100, 2),
             "strategyPerformance": summarize(by_strategy),
             "sessionPerformance": summarize(by_session),
+            "sessionStrategyPerformance": summarize(by_session_strategy),
             "spreadMemory": {"avgSpread": round(sum(spreads) / max(len(spreads), 1), 3), "samples": len(spreads)},
             "slippageMemory": {"avgSlippage": round(sum(slips) / max(len(slips), 1), 3), "samples": len(slips)},
             "probabilityCalibration": calibration,

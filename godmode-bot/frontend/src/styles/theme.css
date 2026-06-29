@@ -107,7 +107,10 @@ a{color:inherit}
 .card:hover{transform:translateY(-1px);border-color:var(--border-strong);box-shadow:var(--shadow-card)}
 .card.soft{background:var(--surface-soft);box-shadow:none}
 .card.alert-card{border-color:var(--gold-border);background:var(--gold-soft)}
-.section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.section-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.section-title .card-title{min-width:0}
+/* inline code (URLs / JSON snippets in help text) must wrap, never push the card wider on mobile */
+code{overflow-wrap:anywhere;word-break:break-word}
 .card-title{font-size:13px;font-weight:800;margin:0;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;color:var(--text)}
 .card-title svg{color:var(--gold)}
 .label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:800}
@@ -198,7 +201,9 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .checklist-item{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border-soft)}
 .checklist-item:last-child{border-bottom:0}
 .checklist-item span{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere}
-.checklist-item strong{text-align:right;flex-shrink:0;white-space:nowrap}
+/* right value: keep short status words (BLOCK/SOFT/YES) intact without breaking mid-word, but let a
+   long value (e.g. "MetaTrader5 package missing") WRAP at spaces so it never overflows on a phone */
+.checklist-item strong{text-align:right;min-width:0;overflow-wrap:normal;word-break:normal}
 
 .progress-track{height:7px;border-radius:var(--r-pill);background:var(--surface-muted);overflow:hidden}
 .progress-fill{height:100%;border-radius:var(--r-pill);background:linear-gradient(90deg,var(--green),#6ee7b7);transition:width var(--med)}

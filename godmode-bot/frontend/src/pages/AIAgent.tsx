@@ -31,7 +31,7 @@ export default function AIAgent(){
         <MetricCard label="Decision" value={take?`TAKE ${bias}`:action}/>
         <MetricCard label="Confidence" value={`${Math.round(Number(d.confidence||0))}%`}/>
         <MetricCard label="Confluence" value={`${gi.confluenceCount??d.features?.confluenceCount??'—'}/12`}/>
-        <MetricCard label="Regime" value={d.marketRegime||'—'}/>
+        <MetricCard label="Regime" value={d.marketRegime||'—'} delta={d.regimeConfidence!=null?`${d.regimeConfidence}% confidence`:undefined}/>
       </div>
 
       {/* REAL gold-market intelligence — the actual indicators the engine reads */}
@@ -45,6 +45,8 @@ export default function AIAgent(){
           <IntelCell label="Fair Value Gap" value={gi.fvg?.found?'Open FVG':'None'} sub="3-candle imbalance" tone={gi.fvg?.found?'green':'gold'}/>
           <IntelCell label="OTE Swing" value={gi.swingHigh&&gi.swingLow?`${num(gi.swingLow,0)}–${num(gi.swingHigh,0)}`:'—'} sub="61.8–78.6% Fib zone"/>
           <IntelCell label="Asian Range" value={gi.asianRange?.defined?'Defined':'—'} sub={gi.asianRange?.defined?`${num(gi.asianRange?.low,0)}–${num(gi.asianRange?.high,0)}`:'outside Asian session'}/>
+          <IntelCell label="Trend Strength" value={num(d.trendStrengthAdx,0)} sub={`ADX · ${Number(d.trendStrengthAdx||0)>=25?'trending':Number(d.trendStrengthAdx||0)<18?'ranging':'weak'}`} tone={Number(d.trendStrengthAdx||0)>=25?'green':Number(d.trendStrengthAdx||0)<18?'red':'gold'}/>
+          <IntelCell label="Volatility %ile" value={`${num(d.atrPercentile,0)}%`} sub={Number(d.atrPercentile||0)>=80?'expansion':Number(d.atrPercentile||0)<=25?'compression':'normal'} tone={Number(d.atrPercentile||0)>=80?'gold':Number(d.atrPercentile||0)<=25?'red':undefined}/>
         </div>
         <div className="ai-insight" style={{marginTop:14}}><Sparkles size={15}/><span>{d.reason||'Waiting for live MT5 confluence before approving a trade.'}</span></div>
       </Card>
