@@ -165,6 +165,11 @@ INSTITUTIONAL_STRATEGIES = [
         "id": "no-trade-standby",
         "name": "No-Trade / Standby Strategy",
         "category": "protection",
+        # Explicit metadata: this is a SYSTEM FALLBACK STATE, never an executable strategy that competes
+        # for selection. The router only resolves to it when every real strategy fails its own gates or a
+        # universal safety veto fires (see the multi-strategy scan in decision_engine.evaluate).
+        "executable": False,
+        "fallbackOnly": True,
         "description": "The most important strategy: blocks trades when conditions are dirty, late, risky, or statistically weak.",
         "bestSessions": ["All"],
         "idealRegimes": ["Chop", "News Blackout", "Spread Expansion", "Low Edge"],

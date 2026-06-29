@@ -306,6 +306,10 @@ def _default_settings() -> dict[str, Any]:
                         # runs the Lab, auto-installs the best candidate that beats your edge out-of-sample,
                         # and alerts Telegram with Uninstall/Keep buttons. Off by default.
                         "autoDiscover": False, "autoDiscoverCooldownMin": 60},
+        # Your broker's REAL XAUUSD costs — set once so every Backtest/Validate runs at your true
+        # economics (and the live cost gate uses the same commission). This is what makes the GO/NO-GO
+        # verdict honest for YOUR account instead of an optimistic default.
+        "brokerCosts": {"spread": 0.20, "commission": 0.05, "slippage": 0.02},
         "security": {"requireApiKey": bool(api_key), "maskAccountBalance": False, "autoLogoutMinutes": 30},
         "meta": {"lastSaved": None, "source": "persistent_json"},
     }
@@ -1331,8 +1335,21 @@ def _send_wait_forecast() -> None:
     # Make it unmistakable that this is a PREVIEW of a setup the bot is watching — NOT a trade signal,
     # and NOT a missed trade. Confidence here is signal quality; the blocks below are why it's held.
     why = "; ".join(str(b) for b in blocks[:2]) if blocks else (dec.get("reason") or "no clean setup yet")
-    reason = (f"🚫 NOT TRADING — preview only. The bot has a {bias} *bias* here but is standing aside "
-              f"({regime}). Blocked by: {why}")
+    # Strategy-scan audit trail (per the No-Trade conflict report): show the user which strategies were
+    # evaluated and why each was held, so it's transparent that the bot scanned ALL of them and isn't
+    # stuck — plus the explicit execution path. Telegram-friendly compact form.
+    evals = dec.get("strategyEvaluations") or []
+    scan_lines = []
+    for e in evals[:5]:
+        if e.get("passes"):
+            scan_lines.append(f"• {e.get('name')}: ✓ would trade")
+        else:
+            r = (e.get("blockedBy") or ["gated"])[0]
+            scan_lines.append(f"• {e.get('name')}: ✗ {str(r)[:54]}")
+    scan_block = ("\n\n📋 *Strategy scan:*\n" + "\n".join(scan_lines)) if scan_lines else ""
+    reason = (f"🚫 NOT TRADING — forecast/preview only, no order sent. The bot has a {bias} *bias* here but "
+              f"is standing aside ({regime}). Blocked by: {why}.{scan_block}\n\n"
+              f"Final action: WAIT · Selected: No-Trade / Standby · *Order sent to MT5: NO*")
     strat = f"Standing aside · {regime}"
     RECAP_STATE["lastWaitForecast"] = now
     base_lot = (SETTINGS_STATE.get("pyramiding", {}) or {}).get("baseLot", 0.01)

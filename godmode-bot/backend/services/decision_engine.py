@@ -1064,6 +1064,9 @@ class GoldDecisionEngine:
 
         return {
             "action":             action,
+            "lifecycleState":     ("TRIGGERED" if action == "TAKE_TRADE" else
+                                   "BLOCKED" if hard_blocks else
+                                   "FORECAST" if side in ("BUY", "SELL") else "SCANNING"),
             "quality":            quality,
             "symbol":             market.get("symbol", "XAUUSD"),
             "side":               side,

@@ -28,7 +28,7 @@ export default function AIAgent(){
       <PageHeader title="AI Agent" subtitle="Live, rules-based market intelligence — every number below is computed from real MT5 candles, not mocked." right={<button className="outline-button" onClick={load}><RefreshCcw size={14}/> Refresh</button>}/>
       <div className="grid grid-5 ai-top-strip">
         <MetricCard label="Agent Status" value={connected?'Analyzing live':'Waiting for MT5'}/>
-        <MetricCard label="Decision" value={take?`TAKE ${bias}`:action}/>
+        <MetricCard label="Decision" value={take?`TAKE ${bias}`:action} delta={d.lifecycleState?`Lifecycle: ${d.lifecycleState}`:undefined}/>
         <MetricCard label="Confidence" value={`${Math.round(Number(d.confidence||0))}%`}/>
         <MetricCard label="Confluence" value={`${gi.confluenceCount??d.features?.confluenceCount??'—'}/12`}/>
         <MetricCard label="Regime" value={d.marketRegime||'—'} delta={d.regimeConfidence!=null?`${d.regimeConfidence}% confidence`:undefined}/>

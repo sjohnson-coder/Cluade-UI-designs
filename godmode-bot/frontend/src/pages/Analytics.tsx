@@ -73,7 +73,10 @@ function BacktestTab(){
   const runJ=useJob('backtest'), valJ=useJob('validate');
   // Restore the last result from the backend on mount — so a finished backtest is still here even if
   // you clicked away before it finished, or reloaded the page (same persistence as the Strategy Lab).
-  useEffect(()=>{(async()=>{const s:any=await api.settings();const t=s?.trading?.timeframe;if(t)setTf(t);if(jobStore.get('backtest').result||jobStore.get('validate').result)return;const b:any=await api.backtestLast();if(b?.result){setRes(b.result);if(b.validation?.validation)setVal(b.validation)}})()},[]);
+  useEffect(()=>{(async()=>{const s:any=await api.settings();const t=s?.trading?.timeframe;if(t)setTf(t);const bc=s?.brokerCosts;if(bc){if(bc.spread!=null)setSpread(Number(bc.spread));if(bc.commission!=null)setCommission(Number(bc.commission));if(bc.slippage!=null)setSlippage(Number(bc.slippage));}if(jobStore.get('backtest').result||jobStore.get('validate').result)return;const b:any=await api.backtestLast();if(b?.result){setRes(b.result);if(b.validation?.validation)setVal(b.validation)}})()},[]);
+  // Save the current spread/commission/slippage as your broker profile, so every future Validate runs at
+  // your real costs (and the live cost gate uses the same commission). One-time calibration.
+  const saveBrokerCosts=async()=>{try{const s:any=await api.settings();const next={...s,brokerCosts:{spread,commission,slippage},ai:{...(s.ai||{}),commissionPrice:commission}};await api.saveSettings(next);setMsg(`Saved your broker costs (spread ${spread} · comm ${commission} · slip ${slippage}). Every Validate now uses these.`);}catch{setMsg('Could not save broker costs.')}};
   // Capture job results into the view when they finish (survives tab switches via the store).
   useEffect(()=>{const r=runJ.result;if(r){setRes(r);if(r.ok===false)setMsg(r.message||'Backtest failed.')}},[runJ.result]);
   useEffect(()=>{const r=valJ.result;if(r){if(r.ok){setVal(r);setRes(r)}else setMsg(r.message||'Validation failed.')}},[valJ.result]);
@@ -97,6 +100,7 @@ function BacktestTab(){
         <button className="gold-button" onClick={run} disabled={runJ.running} style={{height:38}}>{runJ.running?'Running…':'Run Backtest'}</button>
         <button className="gold-button" onClick={validate} disabled={valJ.running} style={{height:38,display:'inline-flex',alignItems:'center',gap:6}} title="Replays the real engine over ~2 years of your MT5 history and gives a GO / CAUTION / NO-GO">{valJ.running?'Validating…':<><Gauge size={15}/> Validate My Edge</>}</button>
         <button className="outline-button" onClick={researchPreset} style={{height:38}} title="Set timeframe to H1 + apply the free news link, then Validate — research only, doesn't change live trading">⚡ Research preset: H1 + news</button>
+        <button className="ghost-button" onClick={saveBrokerCosts} style={{height:38}} title="Save these spread/commission/slippage as your broker profile — every future Validate uses them, and the live cost gate uses the same commission">💾 Save as my broker costs</button>
       </div>
       <p className="tiny muted" style={{marginTop:6}}>“Validate My Edge” replays the engine over ~2 years of your real MT5 history at the selected <strong>timeframe</strong> and returns GO / CAUTION / NO-GO. <strong>Higher timeframe (H1/H4) = bigger move per trade, so the spread is a far smaller % of your risk</strong> — the main lever to flip a cost-dragged edge. The “Research preset” button sets H1 + the free news link to test that here; it does <em>not</em> change live trading (to trade H1 live, set Settings → 5. Trading Defaults → Timeframe). Connect MT5 for a real verdict.</p>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'center',marginTop:12}}>
