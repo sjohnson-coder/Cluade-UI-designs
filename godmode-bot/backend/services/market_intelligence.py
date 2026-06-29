@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from statistics import mean, pstdev
@@ -42,6 +43,7 @@ class EconomicCalendar:
         self._cache: list[dict[str, Any]] = []
         self._cache_at: datetime | None = None
         self._cache_ttl_seconds = 300  # 5 min
+        self._refreshing = False
 
     @property
     def url(self) -> str:
@@ -68,12 +70,23 @@ class EconomicCalendar:
 
     def events(self) -> list[dict[str, Any]]:
         now = utc_now()
-        # Refresh cache every 5 minutes.
-        if self._cache_at is None or (now - self._cache_at).total_seconds() > self._cache_ttl_seconds:
-            live = self._fetch_live()
-            if live:
-                self._cache = live
-            self._cache_at = now
+        # Refresh every 5 min — but NEVER block the calling request on the network. When the cache is
+        # stale we kick the fetch onto a daemon thread and return the current (stale/empty) cache
+        # immediately, so a slow calendar URL can't freeze a decision/poll for up to 8s.
+        stale = self._cache_at is None or (now - self._cache_at).total_seconds() > self._cache_ttl_seconds
+        if stale and self.url and not self._refreshing:
+            self._refreshing = True
+
+            def _bg() -> None:
+                try:
+                    live = self._fetch_live()
+                    if live:
+                        self._cache = live
+                    self._cache_at = utc_now()
+                finally:
+                    self._refreshing = False
+
+            threading.Thread(target=_bg, daemon=True).start()
         return self._cache
 
     def blackout_status(self, now: datetime | None = None) -> dict[str, Any]:
@@ -115,6 +128,7 @@ class MacroAwareness:
         self._cache: dict[str, Any] | None = None
         self._cache_at: datetime | None = None
         self._ttl = 600  # 10 min
+        self._refreshing = False
 
     @property
     def dxy_url(self) -> str:
@@ -138,11 +152,36 @@ class MacroAwareness:
         except Exception:
             return None
 
+    def _neutral(self) -> dict[str, Any]:
+        configured = bool(self.dxy_url or self.us10y_url)
+        return {
+            "dxy": {"value": 0.0, "changePct": 0.0, "biasForGold": "neutral"},
+            "us10y": {"value": 0.0, "changeBp": 0.0, "biasForGold": "neutral"},
+            "realYields": {"biasForGold": "neutral"},
+            "macroGoldBias": "neutral",
+            "detail": "Macro feed warming up…" if configured else "No live macro feed configured. Set DXY_FEED_URL / US10Y_FEED_URL in .env for live context.",
+            "liveFeeds": False,
+            "status": "warming" if configured else "not_configured",
+        }
+
     def snapshot(self) -> dict[str, Any]:
         now = utc_now()
         if self._cache and self._cache_at and (now - self._cache_at).total_seconds() < self._ttl:
             return self._cache
+        # Stale/cold → refresh on a daemon thread and return the last good cache (or neutral) NOW,
+        # so a slow DXY/US10Y URL can never block the decision that asked for macro context.
+        if (self.dxy_url or self.us10y_url) and not self._refreshing:
+            self._refreshing = True
+            threading.Thread(target=self._refresh, daemon=True).start()
+        return self._cache or self._neutral()
 
+    def _refresh(self) -> None:
+        try:
+            self._build_snapshot()
+        finally:
+            self._refreshing = False
+
+    def _build_snapshot(self) -> dict[str, Any]:
         dxy_data = self._fetch(self.dxy_url)
         us10y_data = self._fetch(self.us10y_url)
 
@@ -185,7 +224,7 @@ class MacroAwareness:
             "liveFeeds": bool(dxy_data or us10y_data),
             "status": "live" if (dxy_data or us10y_data) else "not_configured",
         }
-        self._cache_at = now
+        self._cache_at = utc_now()
         return self._cache
 
 

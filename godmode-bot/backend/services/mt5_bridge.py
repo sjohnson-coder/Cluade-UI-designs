@@ -62,6 +62,18 @@ class MT5Bridge:
         self._last_tick_change: float = 0.0
         self._init_at: float = 0.0
         self._init_ttl: float = 10.0  # re-check every 10 seconds
+        # Short-TTL market-snapshot cache. The UI polls several endpoints every ~5s and each one used
+        # to trigger its OWN 7-call multi-timeframe MT5 fetch (tick + symbol_info + M15/H1/H4/D1,
+        # ~1200 candles). Caching the built snapshot for a few seconds lets all the near-simultaneous
+        # polls in one cycle share ONE fetch — cutting MT5 IPC ~70% with no meaningful staleness
+        # (M15+ candles don't move in a few seconds; order fills re-read the live tick at execution).
+        # TTL = 2.5s: short enough that the 3s auto-PROTECTION loop always refetches fresh data (never
+        # manages trades on stale prices), long enough to collapse the UI's simultaneous snapshot polls
+        # (AI Agent fires action-matrix + market-snapshot together via Promise.all, plus the topbar) into
+        # one fetch. Override with GODMODE_SNAPSHOT_TTL=0 to disable caching entirely.
+        self._snap_cache: dict[tuple[str, str], dict[str, Any]] = {}
+        self._snap_cache_at: dict[tuple[str, str], float] = {}
+        self._snap_ttl: float = float(os.getenv("GODMODE_SNAPSHOT_TTL", "2.5") or 2.5)
 
     def configure(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = payload or {}
@@ -131,8 +143,15 @@ class MT5Bridge:
             self.last_connect_message = str(exc)
             return False, str(exc)
 
+    def invalidate_snapshot_cache(self) -> None:
+        """Drop the short-TTL market-snapshot cache so the next call fetches fresh from MT5
+        (used on connect / disconnect / manual refresh)."""
+        self._snap_cache.clear()
+        self._snap_cache_at.clear()
+
     def connect(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         self.configure(payload or {})
+        self.invalidate_snapshot_cache()
         ok, detail = self._ensure_initialized()
         return {"ok": ok, "detail": detail, "status": self.status()}
 
@@ -142,6 +161,7 @@ class MT5Bridge:
                 mt5.shutdown()
             except Exception:
                 pass
+        self.invalidate_snapshot_cache()
         self.last_connect_message = "MT5 shutdown requested from UI."
         return {"ok": True, "status": self.status()}
 
@@ -296,6 +316,12 @@ class MT5Bridge:
 
     def market_snapshot(self, symbol: str | None = None, timeframe: str = "M15") -> dict[str, Any]:
         symbol = symbol or self.symbol
+        key = (symbol, timeframe)
+        # Serve a fresh-enough cached snapshot so a burst of polls shares one MT5 fetch.
+        if self._snap_ttl > 0:
+            hit = self._snap_cache.get(key)
+            if hit is not None and (time.monotonic() - self._snap_cache_at.get(key, 0.0)) < self._snap_ttl:
+                return hit
         ok, detail = self._ensure_initialized()
         if not ok:
             return self._empty_market(symbol, timeframe, detail)
@@ -320,7 +346,7 @@ class MT5Bridge:
             d1_candles = self.copy_rates(symbol=symbol, timeframe="D1", count=200)
             atr = self._atr(candles)
             trend = self._trend_label(candles)
-            return {
+            snapshot = {
                 "source": "mt5",
                 "connected": True,
                 "symbol": symbol,
@@ -345,6 +371,9 @@ class MT5Bridge:
                 "sparkline": [{"x": i, "value": c["close"]} for i, c in enumerate(candles[-40:])],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+            self._snap_cache[key] = snapshot
+            self._snap_cache_at[key] = time.monotonic()
+            return snapshot
         except Exception as exc:
             return self._empty_market(symbol, timeframe, str(exc))
 
