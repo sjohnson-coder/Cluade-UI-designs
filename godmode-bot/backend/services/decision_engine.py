@@ -944,6 +944,52 @@ class GoldDecisionEngine:
                 hard_blocks.append(f"Pyramid BLOCKED: trade is at {profit_r:.2f}R — never add to a losing or flat position")
 
         action = "TAKE_TRADE" if not hard_blocks and selected.get("id") != "no-trade-standby" else "SKIP_OR_WAIT"
+
+        # ── Multi-strategy scan (transparency + rescue) ──────────────────────────────────────────
+        # Re-judge THIS bar against EVERY enabled strategy's OWN gates (R:R, chop/efficiency, the
+        # confidence bar — the only strategy-specific gates). The UNIVERSAL safety gates (news, spread,
+        # cost discipline, cleanliness, structure, session, RSI, HTF, over-extension, pyramid) are NOT
+        # bypassable: if any fired they're in `universal_hard` and no strategy can trade. This lets a
+        # fitting, already-installed strategy take a setup the top-ranked one would skip — so you're not
+        # blocked when a better-suited strategy exists — without ever inventing a chop trade that loses.
+        _DEP = ("R/R too low", "Choppy/range market", "Confidence ")
+        universal_hard = [b for b in hard_blocks if not b.startswith(_DEP)]
+        strategy_evaluations: list[dict[str, Any]] = []
+        for cand in candidates:
+            s = cand.get("strategy", {}) if isinstance(cand, dict) else {}
+            if not isinstance(s, dict) or s.get("id") == "no-trade-standby":
+                continue
+            gp = s.get("gateProfile") if isinstance(s.get("gateProfile"), dict) else {}
+            c_take = float(gp.get("minTakeScore", self.min_take_score))
+            c_rr   = float(gp.get("minRiskReward", self.min_rr))
+            c_eff  = float(gp.get("minEfficiency", self.min_efficiency_ratio))
+            if s is selected:
+                c_conf, c_factors = confidence, factors
+            else:
+                c_factors = self._score_factors(market, regime, s, questions, macro, vol_status, memory, features, session_score)
+                c_raw = round(max(0, min(100, sum(f.score * f.weight for f in c_factors) / max(sum(f.weight for f in c_factors), 1))), 1)
+                c_conf, _ = self._apply_calibration(c_raw, memory)
+            dep: list[str] = []
+            if rr < c_rr:
+                dep.append(f"R:R {rr:.2f} < {c_rr:.2f}")
+            if not features.get("freshLeg") and er < c_eff:
+                dep.append(f"chop: efficiency {er:.2f} < {c_eff:.2f}")
+            if c_conf < c_take:
+                dep.append(f"confidence {c_conf:.0f}% < {c_take:.0f}%")
+            passes = (not universal_hard) and (not dep) and side in ("BUY", "SELL")
+            strategy_evaluations.append({
+                "name": s.get("name"), "score": cand.get("score"), "fit": cand.get("fit"),
+                "confidence": round(float(c_conf), 1), "minEfficiency": round(c_eff, 2),
+                "passes": passes,
+                "blockedBy": [] if passes else (dep + universal_hard[:1]),
+            })
+            # Rescue: if the top pick was blocked, adopt the best-ranked strategy that DOES pass.
+            if passes and action != "TAKE_TRADE":
+                selected, confidence, factors = s, c_conf, c_factors
+                eff_take, eff_rr, eff_eff = c_take, c_rr, c_eff
+                hard_blocks = []
+                action = "TAKE_TRADE"
+
         if action == "TAKE_TRADE" and confidence >= self.min_sniper_score:
             quality = "SNIPER"
         elif action == "TAKE_TRADE" and confidence >= self.min_standard_score:
@@ -966,6 +1012,7 @@ class GoldDecisionEngine:
             "confidenceRaw":      confidence_raw,
             "selectedStrategy":   selected,
             "strategyCandidates": candidates,
+            "strategyEvaluations": strategy_evaluations,
             "marketRegime":       regime,
             "sessionName":        session_name,
             "sessionScore":       session_score,
@@ -1092,15 +1139,17 @@ class GoldDecisionEngine:
         enabled = [s for s in strategies if s.get("enabled", True)]
         if not enabled:
             return []
-        preferred = self._preferred_for_regime(regime, calendar_status, cleanliness)
-        if preferred == ["No-Trade / Standby Strategy"]:
-            # Capital-protection standby is a SYSTEM safeguard — found even if the user
-            # disabled it on the Strategies page (the hard gates still block regardless).
+        # Hard safety standby ONLY for a news blackout or a dirty/illiquid market — those block EVERY
+        # strategy. Regime "wait" labels (compression/range) NO LONGER force standby here: every
+        # strategy is ranked and then judged by ITS OWN gates in evaluate(), so a fitting installed
+        # strategy can still take the bar instead of a blanket block.
+        if calendar_status.get("isBlackout") or not cleanliness.get("isClean", True):
             standby = next((s for s in strategies if s.get("id") == "no-trade-standby"), None)
             if standby:
                 return [{"strategy": standby, "name": standby.get("name"), "score": 100.0, "fit": 1.0,
                          "liveWinRate": 100.0, "expectancyR": 0.0, "sessionFit": True, "trades": 0,
                          "source": "protection", "reason": "Capital protection — news blackout or dirty market."}]
+        preferred = self._preferred_for_regime(regime, calendar_status, cleanliness)
         session_name = str(market.get("session", "")).lower()
         mem_by_name = {row.get("name"): row for row in (memory.get("strategyPerformance") or [])}
         regime_l = regime.lower()

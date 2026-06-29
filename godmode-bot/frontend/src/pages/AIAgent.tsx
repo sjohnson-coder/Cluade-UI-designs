@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, BrainCircuit, Gauge, RefreshCcw, Sparkles, TrendingUp } from 'lucide-react';
+import { Activity, BrainCircuit, Gauge, Layers, RefreshCcw, Sparkles, TrendingUp } from 'lucide-react';
 import { Card, Checklist, ConfidenceRing, DataTable, MetricCard, PageHeader, ProgressBar, SectionTitle, SideBadge, Tag } from '../components/ui';
 import { LiveChart } from '../components/LiveChart';
 import { api } from '../lib/api';
@@ -13,6 +13,7 @@ export default function AIAgent(){
   const d=matrix.decision||{}, k=analytics.kpis||{}, currency=analytics.currency||analytics.account?.currency||'';
   const gi=d.goldIntelligence||{}; const factors:any[]=Array.isArray(d.factors)?d.factors:[]; const questions:any[]=Array.isArray(d.traderQuestions)?d.traderQuestions:[];
   const blocks:string[]=d.decisionBlocks||[]; const soft:string[]=d.softBlocks||[];
+  const evals:any[]=Array.isArray(d.strategyEvaluations)?d.strategyEvaluations:[]; const selName=(d.selectedStrategy||{}).name;
   const connected=Boolean(market.connected);
   const candles=useMemo(()=>Array.isArray(market.candles)?market.candles:[],[market.candles]);
   // Top weighted real factors (weight × score), sorted by contribution
@@ -60,6 +61,10 @@ export default function AIAgent(){
         <Card><SectionTitle title="Why the AI is NOT trading yet"/>{blocks.length?<Checklist items={blocks.map((b:string)=>({label:b,value:'BLOCK',type:'danger'}))}/>:soft.length?<Checklist items={soft.map((b:string)=>({label:b,value:'SOFT',type:'warning'}))}/>:<Checklist items={[{label:take?'All hard gates passed — trade approved':'Monitoring for a valid setup',value:take?'READY':'OK',type:'success'}]}/>}</Card>
         <Card><SectionTitle title="Performance Adaptation (bot-only)"/><div className="grid grid-3 ai-adapt-row"><MetricCard label="Win Rate (real)" value={`${k.winRate||0}%`}/><MetricCard label="Profit Factor" value={k.profitFactor||0}/><MetricCard label="Expectancy" value={money(k.expectancy,currency)}/></div></Card>
       </div>
+      <Card style={{marginTop:16}}><SectionTitle icon={<Layers size={16}/>} title="Strategy Scan — best fit for this bar" right={<Tag color="purple">Each strategy judged on its own gates</Tag>}/>
+        {evals.length?<DataTable columns={['Strategy','Score','Conf','Verdict','Why blocked']} rows={evals} renderCell={(r,c)=>c==='Strategy'?<span><strong>{r.name}</strong>{selName===r.name&&<> <Tag color="green">selected</Tag></>}</span>:c==='Score'?Math.round(Number(r.score||0)):c==='Conf'?`${Math.round(Number(r.confidence||0))}%`:c==='Verdict'?<Tag color={r.passes?'green':'gold'}>{r.passes?'WOULD TRADE':'blocked'}</Tag>:c==='Why blocked'?(r.passes?'—':(Array.isArray(r.blockedBy)?r.blockedBy.join('; '):'')):r[c]}/>:<p className="muted tiny">Connect MT5 — the AI ranks every enabled strategy and shows which one fits this exact bar.</p>}
+        <p className="tiny muted" style={{marginTop:8}}>The AI scores every enabled strategy and takes the best one that passes <strong>its own</strong> entry gates (chop tolerance, confidence bar, R:R) — so you're not blocked when a better-suited strategy exists. Universal safety gates (news blackout, spread cap, cost discipline, dirty market) still block <em>all</em> strategies. If nothing fits this regime, run the <strong>Strategy Lab</strong> to find/install a strategy that does.</p>
+      </Card>
       <Card style={{marginTop:16}}><SectionTitle title="Journal of AI Decisions"/><DataTable columns={['Time','Pair','Action','PnL','Result']} rows={(analytics.history||[]).slice(0,8)} renderCell={(r,c)=>c==='Action'?<SideBadge side={r.side||r.direction}/>:c==='PnL'?<span className={Number(r.pnlUsd)>=0?'positive':'negative'}>{money(r.pnlUsd,currency)}</span>:c==='Result'?<Tag color={Number(r.pnlUsd)>=0?'green':'red'}>{Number(r.pnlUsd)>=0?'WIN':'LOSS'}</Tag>:c==='Time'?(r.closeTime||'—'):r[c.toLowerCase()]||r.symbol||'—'}/></Card>
     </div>
 
