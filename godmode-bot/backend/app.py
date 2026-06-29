@@ -233,17 +233,26 @@ def _save_factor_weights(weights: dict[str, Any]) -> None:
 _load_factor_weights()
 _load_decision_journal()
 
-def _backtest_candles(count: int) -> list[dict[str, Any]]:
-    """M15 candles for backtesting: real MT5 history when connected, else a synthetic
-    series so the harness still runs (results on synthetic data are illustrative only)."""
+def _tf_default_bars(tf: str) -> int:
+    """A sensible ~2-3 year sample size per timeframe (so Validate uses comparable history)."""
+    return {"M1": 120000, "M5": 100000, "M15": 70000, "H1": 14000, "H4": 4200, "D1": 1500}.get(str(tf).upper(), 70000)
+
+
+def _backtest_candles(count: int, timeframe: str | None = None) -> list[dict[str, Any]]:
+    """Candles for backtesting at the requested timeframe (falls back to your configured
+    trading timeframe, else M15): real MT5 history when connected, else a synthetic series so the
+    harness still runs (results on synthetic data are illustrative only)."""
+    tf = str(timeframe or (SETTINGS_STATE.get("trading") or {}).get("timeframe") or "M15").upper()
+    if tf not in {"M1", "M5", "M15", "H1", "H4", "D1"}:
+        tf = "M15"
     count = max(300, min(int(count or 4000), 120000))   # up to ~3.4 years of M15 for real validation
     if mt5_bridge.status().get("connected"):
         sym = str((SETTINGS_STATE.get("trading") or {}).get("symbol", mt5_bridge.symbol))
-        rows = mt5_bridge.copy_rates(symbol=sym, timeframe="M15", count=count)
+        rows = mt5_bridge.copy_rates(symbol=sym, timeframe=tf, count=count)
         if rows:
             return rows
     try:
-        return demo_data._candles(count, "M15")
+        return demo_data._candles(count, tf)
     except Exception:
         return []
 
@@ -3069,7 +3078,8 @@ def backtest_run(payload: dict[str, Any] = Body(default={})):
 
 def _validate_impl(payload: dict[str, Any], progress: Any = None) -> dict[str, Any]:
     connected = bool(mt5_bridge.status().get("connected"))
-    candles = _backtest_candles(int(payload.get("bars", 70000)))   # ~2 years of M15
+    tf = str(payload.get("timeframe") or (SETTINGS_STATE.get("trading") or {}).get("timeframe") or "M15").upper()
+    candles = _backtest_candles(int(payload.get("bars") or _tf_default_bars(tf)), tf)   # ~2 yrs at this TF
     params = _backtest_params({"spread": 0.25, "commission": 0.07, "minSample": 40, "folds": 6, **payload})
     res = backtester.run(candles, decision_engine, list(STRATEGIES_STATE.values()), params, progress=progress)
     if not res.get("ok"):
@@ -3088,8 +3098,9 @@ def _validate_impl(payload: dict[str, Any], progress: Any = None) -> dict[str, A
         decision, head = "CAUTION", "Barely above costs / inconsistent folds — refine (disable DISABLE-verdict strategies, tighten filters) before sizing up."
     else:
         decision, head = "NO-GO", "No reliable edge after costs as configured — do not trade live as-is."
+    res["timeframe"] = tf
     res["validation"] = {
-        "decision": decision, "headline": head,
+        "decision": decision, "headline": head, "timeframe": tf,
         "dataSource": "mt5_history" if connected else "synthetic_demo",
         "expectancyR": o.get("expectancyR"), "profitFactor": o.get("profitFactor"),
         "winRatePct": o.get("winRate"), "maxDrawdownR": o.get("maxDrawdownR"),
@@ -3196,8 +3207,10 @@ def backtest_validate_async(payload: dict[str, Any] = Body(default={})):
 def backtest_run_async(payload: dict[str, Any] = Body(default={})):
     jid = _new_job("backtest")
     def fn(prog):
-        candles = _backtest_candles(int(payload.get("bars", 4000)))
+        tf = str(payload.get("timeframe") or (SETTINGS_STATE.get("trading") or {}).get("timeframe") or "M15").upper()
+        candles = _backtest_candles(int(payload.get("bars", 4000)), tf)
         r = backtester.run(candles, decision_engine, list(STRATEGIES_STATE.values()), _backtest_params(payload), progress=prog)
+        r["timeframe"] = tf
         r["dataSource"] = "mt5_history" if mt5_bridge.status().get("connected") else "synthetic_demo"
         if r.get("dataSource") == "synthetic_demo":
             r["note"] = "Synthetic candles (MT5 not connected) — numbers are illustrative. Connect MT5 for a real edge measurement."
