@@ -214,6 +214,9 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .table td{padding:11px 12px;border-bottom:1px solid var(--border-soft);color:var(--text-muted);vertical-align:middle;white-space:nowrap}
 .table td .price,.num{font-family:"Geist Mono","JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
 .table tr:last-child td{border-bottom:0}
+/* Strategy Scan: let the "Why blocked" reason wrap instead of truncating off the card edge */
+.strategy-scan-card .table td{white-space:normal;vertical-align:top}
+.strategy-scan-card .table td:last-child{min-width:220px;line-height:1.4}
 .table tbody tr:hover td{background:rgba(216,163,58,.04)}
 
 .detail-row,.trade-line{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid var(--border-soft);padding:8px 0;font-size:12px}

@@ -42,6 +42,14 @@ CANDIDATE_LIBRARY: list[dict[str, Any]] = [
     {"id": "balanced_plus", "name": "Balanced+", "source": "library",
      "thesis": "Your balanced default with a slightly higher R target — a gentle, low-risk tweak.",
      "profile": {"strictnessMode": "balanced", "minRiskReward": 1.5}},
+    {"id": "range_break_scout", "name": "Range Compression Breakout", "source": "library",
+     "thesis": "For chop/range/compression regimes — but it does NOT fade the range (fading loses). It sits "
+               "ready and only fires on a fresh, sized directional leg breaking OUT of the compression: a "
+               "lower efficiency floor lets it engage as the range resolves, with a tight spread cap and "
+               "scout size. Back/forward-tested like every candidate; only installs if it beats your edge.",
+     "profile": {"strictnessMode": "balanced", "minEfficiencyRatio": 0.18, "minRiskReward": 1.4,
+                 "standardConfidence": 74, "scoutConfidence": 70, "allowScoutEntries": True, "maxSpread": 0.30,
+                 "idealRegimes": ["Range / Wait", "Compression / Wait", "Asian Range", "Volatility Expansion"]}},
     {"id": "prime_quality", "name": "Prime Quality (cost-aware)", "source": "library",
      "thesis": "Concentrates on the few highest edge-to-cost setups: London/NY only, strict chop "
                "rejection, high confluence, and a tight spread cap so trading costs can't eat the edge. "

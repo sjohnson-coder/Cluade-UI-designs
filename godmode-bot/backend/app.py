@@ -288,7 +288,11 @@ def _default_settings() -> dict[str, Any]:
         "aiProvider": {"enabled": False, "provider": "claude", "apiKey": "",
                        "model": "", "candidatesPerRun": 3},
         "strategyLab": {"feedUrl": "", "feedKey": "", "autoRunDaily": False,
-                        "autoRunHourUtc": 22, "improveMarginR": 0.05},
+                        "autoRunHourUtc": 22, "improveMarginR": 0.05,
+                        # Auto-pilot (opt-in): when NO enabled strategy fits the current market, the bot
+                        # runs the Lab, auto-installs the best candidate that beats your edge out-of-sample,
+                        # and alerts Telegram with Uninstall/Keep buttons. Off by default.
+                        "autoDiscover": False, "autoDiscoverCooldownMin": 60},
         "security": {"requireApiKey": bool(api_key), "maskAccountBalance": False, "autoLogoutMinutes": 30},
         "meta": {"lastSaved": None, "source": "persistent_json"},
     }
@@ -659,17 +663,25 @@ def _write_mql5_control(lines: list[str]) -> None:
         pass
 
 
-def _telegram_send_text(text: str) -> dict[str, Any]:
+def _telegram_creds() -> tuple[str, str]:
+    tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
+    return (str(tg.get("botToken") or os.getenv("TELEGRAM_BOT_TOKEN", "")).strip(),
+            str(tg.get("chatId") or os.getenv("TELEGRAM_CHAT_ID", "")).strip())
+
+
+def _telegram_send_text(text: str, buttons: list[list[dict[str, str]]] | None = None) -> dict[str, Any]:
     tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
     enabled = bool(tg.get("enabled") or os.getenv("TELEGRAM_ENABLED", "").lower() in {"1", "true", "yes"})
-    token = str(tg.get("botToken") or os.getenv("TELEGRAM_BOT_TOKEN", "")).strip()
-    chat_id = str(tg.get("chatId") or os.getenv("TELEGRAM_CHAT_ID", "")).strip()
+    token, chat_id = _telegram_creds()
     if not enabled:
         return {"ok": False, "skipped": True, "message": "Telegram is disabled in Settings."}
     if not token or not chat_id:
         return {"ok": False, "message": "Telegram Bot Token and Chat ID are required."}
     try:
-        data = urllib.parse.urlencode({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}).encode("utf-8")
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+        if buttons:   # inline keyboard: [[{"text":..,"callback_data":..}], ...]
+            payload["reply_markup"] = json.dumps({"inline_keyboard": buttons})
+        data = urllib.parse.urlencode(payload).encode("utf-8")
         req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data, method="POST")
         with urllib.request.urlopen(req, timeout=8) as resp:
             raw = resp.read().decode("utf-8", "ignore")
@@ -1388,6 +1400,9 @@ async def _recap_loop() -> None:
                 RECAP_STATE["lastLabRun"] = today
                 res = await asyncio.get_event_loop().run_in_executor(None, _run_strategy_lab, 60000)
                 _alert_lab_recommendation(res)
+            # Auto-pilot: discover & install a fitting strategy when nothing else fits (opt-in, guarded).
+            if lab_cfg.get("autoDiscover"):
+                await asyncio.get_event_loop().run_in_executor(None, _auto_discover_strategy)
             await asyncio.sleep(60)
         except asyncio.CancelledError:
             raise
@@ -1399,6 +1414,7 @@ async def _recap_loop() -> None:
 async def startup_auto_trader() -> None:
     asyncio.create_task(_auto_trading_loop())
     asyncio.create_task(_recap_loop())
+    asyncio.create_task(_telegram_command_loop())   # listen for Telegram Uninstall/Keep button taps
 
 
 def _apply_runtime_settings() -> None:
@@ -3289,6 +3305,108 @@ def _alert_lab_recommendation(res: dict[str, Any]) -> None:
         tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
         if tg.get("enabled"):
             _telegram_send_text(f"🧠 *GodMode — better strategy found*\n*{rec['name']}*\n{rec['why']}\n\nReview the back/forward test and install it in the dashboard → Analytics → Strategy Lab.")
+
+
+def _auto_discover_strategy() -> None:
+    """Auto-pilot: when NO enabled strategy fits the current market, run the Lab, auto-install the best
+    candidate that beats your edge out-of-sample, and alert Telegram with Uninstall/Keep buttons.
+    OPT-IN (strategyLab.autoDiscover). Heavily guarded: never during a news blackout, never stacks a
+    second install, cooldown-throttled, and only installs a candidate the Lab VALIDATES — so it can
+    inform you and save a missed trade WITHOUT ever forcing a losing chop trade."""
+    lab_cfg = SETTINGS_STATE.get("strategyLab", {}) if isinstance(SETTINGS_STATE.get("strategyLab"), dict) else {}
+    if not lab_cfg.get("autoDiscover"):
+        return
+    if not mt5_bridge.status().get("connected") or not _market_state().get("open", True):
+        return
+    if LAB_STATE.get("installedProfile"):
+        return  # a discovered strategy is already active — don't stack a second one
+    cooldown = float(lab_cfg.get("autoDiscoverCooldownMin", 60) or 60) * 60
+    now = time.time()
+    if now - float(RECAP_STATE.get("lastAutoDiscover", 0) or 0) < cooldown:
+        return
+    try:
+        dec = _decision()
+    except Exception:
+        return
+    if str(dec.get("action")) == "TAKE_TRADE":
+        return  # a strategy already fits — nothing to discover
+    if (dec.get("economicCalendar") or {}).get("isBlackout"):
+        return  # news blackout — correct to wait
+    evals = dec.get("strategyEvaluations") or []
+    if evals and any(e.get("passes") for e in evals):
+        return  # some strategy already passes — not a fit problem
+    RECAP_STATE["lastAutoDiscover"] = now
+    res = _run_strategy_lab(60000)
+    rec = res.get("recommendation")
+    if not rec:
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        if RECAP_STATE.get("lastAutoDiscoverNone") != today:
+            RECAP_STATE["lastAutoDiscoverNone"] = today
+            _telegram_send_text("🔎 *GodMode — auto-scan*\nNo strategy fits the current market, so I scanned the "
+                                "Strategy Lab. *Nothing beats your current edge out-of-sample right now*, so I'm "
+                                "staying flat (correct — no forced trades). I'll keep watching and alert you the "
+                                "moment a validated strategy fits.")
+        return
+    inst = lab_install({"id": rec["id"]})
+    if not inst.get("ok"):
+        return
+    why = str(rec.get("why", ""))[:320]
+    _push_notification("Auto-installed a fitting strategy", f"{rec['name']}: {why}", "success", {"sound": True, "strategyLab": True})
+    _telegram_send_text(
+        f"🤖 *GodMode — auto-installed a fitting strategy*\n*{rec['name']}*\n{why}\n\n"
+        f"It now competes in your rotation with its OWN entry gates (your global config is untouched), so "
+        f"you don't miss the setup while you're busy. Tap below to manage it:",
+        buttons=[[{"text": "↩️ Uninstall", "callback_data": "gm_lab_uninstall"},
+                  {"text": "✅ Keep", "callback_data": "gm_lab_keep"}]])
+
+
+async def _telegram_command_loop() -> None:
+    """Poll Telegram for button taps / commands so you can Uninstall or Keep an auto-installed strategy
+    straight from your phone. Short-poll (~12s); no webhook, nothing exposed to the internet. Telegram-
+    only and resilient — any error just retries. Handles the auto-discover Uninstall/Keep buttons and the
+    /uninstall and /keep text commands as a fallback."""
+    while True:
+        try:
+            tg = SETTINGS_STATE.get("telegram", {}) if isinstance(SETTINGS_STATE.get("telegram"), dict) else {}
+            token, _chat = _telegram_creds()
+            if not tg.get("enabled") or not token:
+                await asyncio.sleep(20); continue
+            offset = int(RECAP_STATE.get("tgUpdateOffset", 0) or 0)
+            url = f"https://api.telegram.org/bot{token}/getUpdates?timeout=0&offset={offset}&allowed_updates=%5B%22message%22%2C%22callback_query%22%5D"
+            def _fetch() -> dict[str, Any]:
+                with urllib.request.urlopen(url, timeout=12) as r:
+                    return json.loads(r.read().decode("utf-8", "ignore"))
+            data = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+            for upd in data.get("result", []) if isinstance(data, dict) else []:
+                RECAP_STATE["tgUpdateOffset"] = int(upd.get("update_id", offset)) + 1
+                cb = upd.get("callback_query") or {}
+                msg = upd.get("message") or {}
+                action, cb_id = None, cb.get("id")
+                if cb:
+                    action = str(cb.get("data") or "")
+                elif isinstance(msg.get("text"), str):
+                    t = msg["text"].strip().lower()
+                    if t in ("/uninstall", "/uninstall_lab", "uninstall"):
+                        action = "gm_lab_uninstall"
+                    elif t in ("/keep", "/skip", "keep"):
+                        action = "gm_lab_keep"
+                if action == "gm_lab_uninstall":
+                    r = lab_uninstall({})
+                    _telegram_send_text("↩️ *Uninstalled.* " + str(r.get("message", "Removed the auto-installed strategy from your rotation.")))
+                elif action == "gm_lab_keep":
+                    _telegram_send_text("✅ *Kept.* The strategy stays in your rotation with its own gates. Remove it any time in the app or with /uninstall.")
+                if cb_id:
+                    try:
+                        ack = urllib.parse.urlencode({"callback_query_id": cb_id}).encode()
+                        await asyncio.get_event_loop().run_in_executor(None, lambda: urllib.request.urlopen(
+                            urllib.request.Request(f"https://api.telegram.org/bot{token}/answerCallbackQuery", data=ack, method="POST"), timeout=8).read())
+                    except Exception:
+                        pass
+            await asyncio.sleep(12)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(20)
 
 
 @app.post("/api/lab/run")
