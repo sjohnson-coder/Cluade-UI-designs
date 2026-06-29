@@ -3256,6 +3256,58 @@ def backtest_run_async(payload: dict[str, Any] = Body(default={})):
     return {"ok": True, "jobId": jid}
 
 
+def _efficiency_sweep_impl(payload: dict[str, Any], progress: Any = None) -> dict[str, Any]:
+    """Run the SAME cost-aware backtest at several trend-efficiency floors and return one comparison
+    table, so you can see the trades-vs-expectancy trade-off of loosening/tightening the chop filter.
+    Uses the cost values supplied in the payload (spread/commission/slippage you set in the UI)."""
+    tf = str(payload.get("timeframe") or (SETTINGS_STATE.get("trading") or {}).get("timeframe") or "M15").upper()
+    bars = int(payload.get("bars") or _tf_default_bars(tf))
+    candles = _backtest_candles(bars, tf)
+    effs = payload.get("efficiencies") or [0.18, 0.24, 0.30, 0.36, 0.42]
+    try:
+        effs = sorted({round(float(x), 2) for x in effs})
+    except Exception:
+        effs = [0.18, 0.24, 0.30, 0.36, 0.42]
+    snapshot = decision_engine.strictness_dict()
+    connected = bool(mt5_bridge.status().get("connected"))
+    params = _backtest_params({"spread": 0.27, "commission": 0.05, "slippage": 0.02,
+                               "minSample": 20, "folds": 5, **payload})
+    rows: list[dict[str, Any]] = []
+    try:
+        for i, eff in enumerate(effs):
+            if progress:
+                progress(i / max(len(effs), 1), f"Testing trend-efficiency floor {eff:.2f} ({i+1}/{len(effs)})…")
+            decision_engine.configure_strictness({**snapshot, "minEfficiencyRatio": eff})
+            r = backtester.run(candles, decision_engine, list(STRATEGIES_STATE.values()), params)
+            o = r.get("overall", {}) if r.get("ok") else {}
+            a = r.get("assessment", {}) if r.get("ok") else {}
+            edge = a.get("edge", "none")
+            verdict = ("GO" if edge == "strong" else "CAUTION" if edge == "marginal"
+                       else "LOW SAMPLE" if edge == "insufficient" else "NO-GO")
+            rows.append({"efficiency": eff, "trades": int(o.get("trades", 0) or 0),
+                         "expectancyR": o.get("expectancyR", 0), "winRate": o.get("winRate", 0),
+                         "profitFactor": o.get("profitFactor", 0), "maxDrawdownR": o.get("maxDrawdownR", 0),
+                         "oosConsistencyPct": r.get("oosConsistencyPct", 0) if r.get("ok") else 0,
+                         "verdict": verdict})
+    finally:
+        decision_engine.configure_strictness(snapshot)   # ALWAYS restore live config
+    best = max(rows, key=lambda x: (float(x["expectancyR"] or 0), int(x["trades"] or 0)), default=None)
+    return {"ok": True, "kind": "efficiency_sweep", "timeframe": tf,
+            "dataSource": "mt5_history" if connected else "synthetic_demo",
+            "span": candles and f"{len(candles)} candles", "candles": len(candles),
+            "costs": {"spreadPrice": params.get("spread"), "commissionPrice": params.get("commission"), "slippagePrice": params.get("slippage")},
+            "activeMode": snapshot.get("strictnessMode"), "rows": rows,
+            "best": best and best["efficiency"],
+            "note": None if connected else "Synthetic candles (MT5 not connected) — illustrative only. Connect MT5 for a real comparison."}
+
+
+@app.post("/api/backtest/efficiency-sweep-async")
+def backtest_efficiency_sweep_async(payload: dict[str, Any] = Body(default={})):
+    jid = _new_job("sweep")
+    _run_job(jid, lambda prog: _efficiency_sweep_impl(payload, prog))
+    return {"ok": True, "jobId": jid}
+
+
 @app.get("/api/backtest/last")
 def backtest_last():
     """The most recent Backtest / Validate result, so the Backtest tab can restore it after you

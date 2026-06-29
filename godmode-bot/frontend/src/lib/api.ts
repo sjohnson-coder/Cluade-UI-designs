@@ -133,6 +133,7 @@ export const api = {
   backtestValidate: (payload: unknown) => request('/api/backtest/validate', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   backtestValidateAsync: (payload?: unknown) => request('/api/backtest/validate-async', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   backtestRunAsync: (payload?: unknown) => request('/api/backtest/run-async', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  efficiencySweepAsync: (payload?: unknown) => request('/api/backtest/efficiency-sweep-async', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   labRunAsync: (payload?: unknown) => request('/api/lab/run-async', { ok: false }, { method: 'POST', body: JSON.stringify(payload || {}) }),
   backtestLast: () => request('/api/backtest/last', { ok: false }),
   jobStatus: (jid: string) => request(`/api/jobs/${jid}`, { ok: false }),
