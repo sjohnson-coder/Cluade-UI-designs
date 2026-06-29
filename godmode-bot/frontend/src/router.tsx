@@ -1,0 +1,3 @@
+import type { ComponentType } from 'react';
+import Dashboard from './pages/Dashboard';import Signals from './pages/Signals';import Strategies from './pages/Strategies';import Trades from './pages/Trades';import Risk from './pages/Risk';import AIAgent from './pages/AIAgent';import Analytics from './pages/Analytics';import Journal from './pages/Journal';import Settings from './pages/Settings';import Login from './pages/Login';
+export const pages: Record<string, ComponentType>={dashboard:Dashboard,signals:Signals,strategies:Strategies,trades:Trades,ai:AIAgent,risk:Risk,analytics:Analytics,journal:Journal,settings:Settings,login:Login};
