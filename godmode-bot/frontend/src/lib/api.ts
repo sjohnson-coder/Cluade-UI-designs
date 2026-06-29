@@ -26,6 +26,11 @@ function headers(extra: Record<string, string> = {}) {
 async function request(path: string, fallback: any, init?: RequestInit) {
   try {
     const res = await fetch(`${API_BASE}${path}`, { headers: headers(), ...init });
+    if (res.status === 401) {
+      // Server requires an API key (remote/LAN mode). Tell the UI so it can prompt for the key.
+      try { window.dispatchEvent(new CustomEvent('godmode:auth-required')); } catch { /* ignore */ }
+      throw new Error('401 API key required');
+    }
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return await res.json();
   } catch (error) {

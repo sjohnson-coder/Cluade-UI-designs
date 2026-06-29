@@ -20,7 +20,9 @@ export function AppShell({ current, onNavigate, children }: { current:string; on
   const [user,setUser]=useState<any>(readUser());
   const [notice,setNotice]=useState<any>({unread:0,items:[]});
   const [noticeOpen,setNoticeOpen]=useState(false);
+  const [authRequired,setAuthRequired]=useState(false);
   useGodModeSounds();
+  useEffect(()=>{const onAuth=()=>setAuthRequired(true);window.addEventListener('godmode:auth-required',onAuth);return()=>window.removeEventListener('godmode:auth-required',onAuth)},[]);
 
   const loadNotifications=async()=>setNotice(await api.notifications());
   useEffect(()=>{const onStorage=()=>setUser(readUser());window.addEventListener('storage',onStorage);return()=>window.removeEventListener('storage',onStorage)},[]);
@@ -69,6 +71,7 @@ export function AppShell({ current, onNavigate, children }: { current:string; on
             <button className="profile" onClick={()=>onNavigate('login')} title="Open profile/login"><div className="avatar"><UserRound size={18}/></div><div><strong>{profile.name}</strong><span className="premium"><Zap size={11}/> {profile.plan}</span></div><ChevronDown size={15}/></button>
           </div>
         </header>
+        {authRequired && <div className="auth-required-banner">🔒 This server requires an API key. Enter it in <button className="linklike" onClick={()=>onNavigate('settings')}>Settings → 13. Mobile &amp; Remote Access</button> to view live data.</div>}
         {children}
       </main>
     </div>

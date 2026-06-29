@@ -41,9 +41,14 @@ class PerformanceMemory:
                 "magic": "ALTER TABLE trades ADD COLUMN magic INTEGER",
                 "comment": "ALTER TABLE trades ADD COLUMN comment TEXT",
                 "bot_trade": "ALTER TABLE trades ADD COLUMN bot_trade INTEGER DEFAULT 1",
+                "seeded": "ALTER TABLE trades ADD COLUMN seeded INTEGER DEFAULT 0",
             }.items():
                 if col not in cols:
                     conn.execute(ddl)
+            # Backfill: flag any pre-existing seed rows (inserted before the `seeded` column existed)
+            # so they're excluded from live calibration/ranking too.
+            conn.execute("UPDATE trades SET seeded=1 WHERE COALESCE(seeded,0)=0 AND comment = ?",
+                         (f"{self.comment_prefix}seed",))
             conn.execute("""CREATE TABLE IF NOT EXISTS ai_journal (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT, event TEXT, detail TEXT, payload TEXT
@@ -82,9 +87,11 @@ class PerformanceMemory:
                 ("XAUUSD", "VWAP Mean Reversion", "London Mid", "SELL", 71, 0.18, 0.04, 212.40, 1.05, "WIN"),
             ]
             for row in samples:
+                # seeded=1 → these sample rows populate the UI on first run but are EXCLUDED from the
+                # live-decision stats (calibration / ranking), so demo data can never fake a live edge.
                 conn.execute(
-                    "INSERT INTO trades (ts,symbol,strategy,session,side,confidence,spread,slippage,pnl,r_multiple,outcome,source,magic,comment,bot_trade) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (datetime.now(timezone.utc).isoformat(), *row, "godmode_bot", self.magic, f"{self.comment_prefix}seed", 1),
+                    "INSERT INTO trades (ts,symbol,strategy,session,side,confidence,spread,slippage,pnl,r_multiple,outcome,source,magic,comment,bot_trade,seeded) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (datetime.now(timezone.utc).isoformat(), *row, "godmode_bot", self.magic, f"{self.comment_prefix}seed", 1, 1),
                 )
             conn.commit()
 
@@ -122,10 +129,13 @@ class PerformanceMemory:
             conn.commit()
         return {"ok": True, "event": event}
 
-    def stats(self) -> dict[str, Any]:
+    def stats(self, live_only: bool = False) -> dict[str, Any]:
+        """live_only=True → EXCLUDE seeded sample rows, so the engine's confidence calibration and
+        strategy ranking learn ONLY from real bot trades. Default (UI) includes seeds for display."""
         self.seed_if_empty()
+        where = "WHERE bot_trade=1" + (" AND COALESCE(seeded,0)=0" if live_only else "")
         with self._conn() as conn:
-            rows = conn.execute("SELECT strategy, session, spread, slippage, pnl, r_multiple, outcome, confidence FROM trades WHERE bot_trade=1").fetchall()
+            rows = conn.execute(f"SELECT strategy, session, spread, slippage, pnl, r_multiple, outcome, confidence FROM trades {where}").fetchall()
         total = len(rows)
         wins = [r for r in rows if r[6] == "WIN" or (r[4] is not None and r[4] > 0)]
         by_strategy: dict[str, list] = {}

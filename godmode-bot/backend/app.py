@@ -85,9 +85,13 @@ async def security_middleware(request: Request, call_next):
         return JSONResponse({"detail": "Rate limit exceeded"}, status_code=429)
     q.append(now)
 
-    if api_key and request.url.path.startswith("/api/") and request.method not in {"GET", "HEAD", "OPTIONS"}:
+    # When a server API key is configured (i.e. the bot is exposed for LAN/mobile/remote access), require
+    # it on EVERY /api/ call — reads included — so account, market, trade and settings data can't be read
+    # by anyone on the network. The static app shell (non-/api) still loads so you can enter the key in
+    # Settings → 13. Local-only users (no key set) are unaffected. (Fixes the GET-endpoint exposure gap.)
+    if api_key and request.url.path.startswith("/api/") and request.method not in {"HEAD", "OPTIONS"}:
         if request.headers.get("X-GodMode-Key") != api_key:
-            return JSONResponse({"detail": "Invalid or missing GodMode API key"}, status_code=401)
+            return JSONResponse({"detail": "GodMode API key required. Enter it in Settings → 13. Mobile & Remote Access."}, status_code=401)
 
     response: Response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -403,7 +407,7 @@ def _cached_decision() -> dict[str, Any]:
     market = {**market, "allowedSessions": _tcfg.get("allowedSessions"), "respectAllowedSessions": _aicfg.get("respectAllowedSessions", True)}
     # STRATEGIES_STATE is defined at module level after _apply_runtime_settings()
     strats = list(globals().get("STRATEGIES_STATE", {}).values())
-    result = decision_engine.evaluate(market, strats, memory.stats()) if market.get("connected") else {"action": "WAIT", "confidence": 0, "quality": "NO_DATA", "reasons": ["MT5 not connected."]}
+    result = decision_engine.evaluate(market, strats, memory.stats(live_only=True)) if market.get("connected") else {"action": "WAIT", "confidence": 0, "quality": "NO_DATA", "reasons": ["MT5 not connected."]}
     mkt_state = _market_state()
     if not mkt_state.get("open", True):
         # Market is closed — surface it clearly and stand down (no entries while closed).
@@ -2186,18 +2190,32 @@ def status():
     mt5 = mt5_bridge.status()
     demo = _demo_enabled()
     mkt = _market_state()
+    connected = bool(mt5.get("connected"))
+    # Explicit truth flags: dataSource says whether numbers are REAL or synthetic; tradingAllowed says
+    # whether a live order could actually be placed right now. Demo/synthetic data can NEVER set
+    # tradingAllowed=True, so the UI/automation can't mistake simulated data for a live, tradable state.
+    live_enabled = bool(mt5.get("liveTradingEnabled"))
+    trading_allowed = bool(connected and live_enabled and mkt.get("open", True) and not kill_switch.status().get("active"))
+    data_source = "live_mt5" if connected else ("synthetic_demo" if demo else "offline")
     return {
         "app": "GodMode Gold Trading Bot",
-        "liveConnection": bool(mt5.get("connected")) or demo,
-        "mt5Connected": bool(mt5.get("connected")) or demo,
+        "liveConnection": connected or demo,
+        "mt5Connected": connected or demo,
         "marketSession": mt5_bridge.current_session(),
         "marketOpen": bool(mkt.get("open", True)),
         "marketStatus": mkt.get("reason", ""),
         "riskEngine": "ACTIVE" if not kill_switch.status().get("active") else "BLOCKED",
-        "agentStatus": "Live" if mt5.get("connected") else ("Demo" if demo else "Waiting for MT5"),
+        "agentStatus": "Live" if connected else ("Demo" if demo else "Waiting for MT5"),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "mt5": mt5,
         "demo": demo,
+        "dataSource": data_source,
+        "tradingAllowed": trading_allowed,
+        "tradingBlockedReason": "" if trading_allowed else (
+            "MT5 not connected" if not connected else
+            "Live Trading is OFF" if not live_enabled else
+            "Market closed" if not mkt.get("open", True) else
+            "Kill switch active" if kill_switch.status().get("active") else ""),
         "source": "demo" if demo else mt5.get("source", "not_connected"),
         "security": {"corsRestricted": True, "apiKeyEnabled": bool(api_key), "rateLimitPerMinute": rate_limit_per_minute},
     }
@@ -2519,7 +2537,7 @@ def update_ai_strictness(payload: dict[str, Any] = Body(default={})):
 
 @app.post("/api/ai/evaluate")
 def ai_evaluate(payload: dict[str, Any] = Body(default={})):
-    decision = payload.get("decision") or decision_engine.evaluate(payload.get("market") or _live_market(), list(STRATEGIES_STATE.values()), memory.stats())
+    decision = payload.get("decision") or decision_engine.evaluate(payload.get("market") or _live_market(), list(STRATEGIES_STATE.values()), memory.stats(live_only=True))
     return _action_matrix(decision=decision, position=payload.get("position") or {}, market=payload.get("market") or _live_market())
 
 

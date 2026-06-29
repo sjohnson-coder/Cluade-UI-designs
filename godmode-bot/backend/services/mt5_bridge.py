@@ -731,6 +731,78 @@ class MT5Bridge:
             return 0
         return mt5.ORDER_TYPE_BUY if side.upper() == "BUY" else mt5.ORDER_TYPE_SELL
 
+    def _preflight(self, symbol: str, request: dict[str, Any]) -> tuple[bool, dict[str, Any], dict[str, Any]]:
+        """Institutional pre-flight BEFORE order_send: pick the broker's supported filling mode, push
+        SL/TP outside the broker stop/freeze level, verify free margin (order_calc_margin) and run
+        mt5.order_check. Returns (ok, adjusted_request, info). Defensive: an infrastructure error in any
+        sub-check never blocks a valid order, but an explicit broker rejection or margin shortfall does."""
+        info_out: dict[str, Any] = {"checks": []}
+        if mt5 is None:
+            return True, request, info_out
+        req = dict(request)
+        is_deal = req.get("action") == mt5.TRADE_ACTION_DEAL
+        try:
+            info = mt5.symbol_info(symbol)
+        except Exception:
+            info = None
+        # 1) Adaptive filling mode (FOK/IOC/RETURN) from the symbol's supported bitmask — fixes the
+        #    hardcoded-IOC rejections on brokers that only accept FOK or RETURN.
+        try:
+            if info is not None and is_deal:
+                fm = int(getattr(info, "filling_mode", 0) or 0)
+                req["type_filling"] = (mt5.ORDER_FILLING_FOK if fm & 1 else
+                                       mt5.ORDER_FILLING_IOC if fm & 2 else
+                                       mt5.ORDER_FILLING_RETURN)
+                info_out["fillingMode"] = int(req["type_filling"])
+        except Exception:
+            pass
+        # 2) Stop/freeze-level validation: SL/TP must sit at least stops_level away from price.
+        try:
+            point = float(getattr(info, "point", 0.01) or 0.01) if info is not None else 0.01
+            lvl = max(int(getattr(info, "trade_stops_level", 0) or 0),
+                      int(getattr(info, "trade_freeze_level", 0) or 0)) if info is not None else 0
+            min_dist = lvl * point
+            if min_dist > 0 and is_deal and "price" in req:
+                price = float(req["price"]); is_buy = req.get("type") == mt5.ORDER_TYPE_BUY
+                sl, tp = float(req.get("sl") or 0.0), float(req.get("tp") or 0.0)
+                osl, otp = sl, tp
+                if sl > 0:
+                    if is_buy and price - sl < min_dist: sl = round(price - min_dist, 5)
+                    elif (not is_buy) and sl - price < min_dist: sl = round(price + min_dist, 5)
+                if tp > 0:
+                    if is_buy and tp - price < min_dist: tp = round(price + min_dist, 5)
+                    elif (not is_buy) and price - tp < min_dist: tp = round(price - min_dist, 5)
+                req["sl"], req["tp"] = sl, tp
+                info_out["minStopDistance"] = round(min_dist, 5)
+                if sl != osl or tp != otp:
+                    info_out["checks"].append(f"SL/TP nudged to broker stop level ({min_dist:.2f})")
+        except Exception:
+            pass
+        # 3) Margin pre-check (order_calc_margin vs free margin).
+        try:
+            if is_deal:
+                margin = mt5.order_calc_margin(req["type"], symbol, req["volume"], req["price"])
+                acct = mt5.account_info()
+                if margin is not None and acct is not None:
+                    info_out["marginRequired"] = round(float(margin), 2)
+                    info_out["freeMargin"] = round(float(acct.margin_free), 2)
+                    if float(acct.margin_free) < float(margin):
+                        return False, req, {**info_out, "message": f"Insufficient free margin: need {float(margin):.2f}, free {float(acct.margin_free):.2f}."}
+        except Exception:
+            pass
+        # 4) Broker's own pre-trade validation.
+        try:
+            chk = mt5.order_check(req)
+            if chk is not None:
+                rc = int(getattr(chk, "retcode", 0) or 0)
+                info_out["orderCheckRetcode"] = rc
+                info_out["orderCheckComment"] = str(getattr(chk, "comment", ""))
+                if rc and rc not in {0, 10008, 10009, 10010}:   # 0/placed/done/partial = OK
+                    return False, req, {**info_out, "message": f"Broker pre-check rejected the order (retcode {rc}: {getattr(chk, 'comment', '')})."}
+        except Exception:
+            pass
+        return True, req, info_out
+
     def _build_request(self, payload: dict[str, Any]) -> dict[str, Any]:
         symbol = str(payload.get("symbol", self.symbol))
         side = str(payload.get("side", payload.get("direction", "BUY"))).upper()
@@ -791,9 +863,12 @@ class MT5Bridge:
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
+            pf_ok, request, preflight = self._preflight(symbol, request)
+            if not pf_ok:
+                return {"ok": False, "blocked": True, "dryRun": False, "preflight": preflight, "message": "Pre-flight blocked the close: " + str(preflight.get("message", "broker check failed")), "mt5Request": request}
             result = mt5.order_send(request)
             ok_result = bool(result and result.retcode in SUCCESS_RETCODES)
-            return {"ok": ok_result, "dryRun": False, "message": "Close order sent." if ok_result else "MT5 close rejected.", "mt5Request": request, "result": result._asdict() if result else str(mt5.last_error())}
+            return {"ok": ok_result, "dryRun": False, "message": "Close order sent." if ok_result else "MT5 close rejected.", "mt5Request": request, "preflight": preflight, "result": result._asdict() if result else str(mt5.last_error())}
         except Exception as exc:
             return {"ok": False, "message": str(exc), "request": payload}
 
@@ -814,6 +889,9 @@ class MT5Bridge:
             sl = float(payload.get("sl", getattr(pos, "sl", 0.0)) or 0.0)
             tp = float(payload.get("tp", getattr(pos, "tp", 0.0)) or 0.0)
             request = {"action": mt5.TRADE_ACTION_SLTP, "position": ticket, "symbol": getattr(pos, "symbol", self.symbol), "sl": sl, "tp": tp, "magic": self.magic, "comment": f"{self.comment_prefix}modify"[:31]}
+            pf_ok, request, preflight = self._preflight(getattr(pos, "symbol", self.symbol), request)
+            if not pf_ok:
+                return {"ok": False, "blocked": True, "dryRun": False, "preflight": preflight, "message": "Pre-flight blocked the modify: " + str(preflight.get("message", "broker check failed")), "mt5Request": request}
             result = mt5.order_send(request)
             ok_result = bool(result and result.retcode in SUCCESS_RETCODES)
             return {"ok": ok_result, "dryRun": False, "message": "Modify request sent." if ok_result else "MT5 modify rejected.", "mt5Request": request, "result": result._asdict() if result else str(mt5.last_error())}
@@ -860,9 +938,13 @@ class MT5Bridge:
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
+            pf_ok, mt5_request, preflight = self._preflight(symbol, mt5_request)
+            if not pf_ok:
+                return {"ok": False, "blocked": True, "dryRun": False, "preflight": preflight,
+                        "message": "Pre-flight blocked the order: " + str(preflight.get("message", "broker check failed")), "request": request, "mt5Request": mt5_request}
             result = mt5.order_send(mt5_request)
             ok_result = bool(result and result.retcode in SUCCESS_RETCODES)
-            return {"ok": ok_result, "dryRun": False, "request": request, "mt5Request": mt5_request, "result": result._asdict() if result else str(mt5.last_error())}
+            return {"ok": ok_result, "dryRun": False, "request": request, "mt5Request": mt5_request, "preflight": preflight, "result": result._asdict() if result else str(mt5.last_error())}
         except Exception as exc:
             return {"ok": False, "message": str(exc), "request": request}
 
