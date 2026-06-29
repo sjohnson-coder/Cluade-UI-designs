@@ -650,6 +650,7 @@ class GoldDecisionEngine:
         self.min_rr           = 1.4
         self.min_confluence   = 3
         self.confluence_by_mode = {"relaxed": 2, "balanced": 3, "strict": 4, "sniper": 5}
+        self.efficiency_by_mode = {"relaxed": 0.24, "balanced": 0.30, "strict": 0.36, "sniper": 0.42}
         self.min_session_score = 50.0
         # Over-extension is now graded, not a single hard veto: a soft (scout) flag
         # past `soft`, a hard block only past `hard` (a genuine chase). This stops the
@@ -711,6 +712,16 @@ class GoldDecisionEngine:
                 except Exception:
                     pass
         self.confluence_by_mode = conf_by_mode
+        # Per-mode trend-efficiency (chop) floor — exposed in Settings so you can manage the exact number
+        # the "Choppy/range market: efficiency X < Y" block uses. Active mode applies; rest remembered.
+        eff_by_mode = {m: presets[m]["eff"] for m in presets}
+        for m, v in (payload.get("efficiencyByMode") or {}).items():
+            if m in eff_by_mode:
+                try:
+                    eff_by_mode[m] = max(0.0, min(0.9, float(v)))
+                except Exception:
+                    pass
+        self.efficiency_by_mode = eff_by_mode
         self.allow_scout_entries = bool(payload.get("allowScoutEntries", True))
         self.min_scout_score     = float(payload.get("scoutConfidence",   p["scout"]))
         self.min_standard_score  = float(payload.get("standardConfidence", p["standard"]))
@@ -720,7 +731,7 @@ class GoldDecisionEngine:
         self.min_rr              = float(payload.get("minRiskReward",     p["rr"]))
         self.min_confluence      = int(payload.get("minConfluence", conf_by_mode[self.strictness_mode]))
         self.min_session_score   = float(payload.get("minSessionScore",   p["sess"]))
-        self.min_efficiency_ratio = float(payload.get("minEfficiencyRatio", p.get("eff", 0.28)))
+        self.min_efficiency_ratio = float(payload.get("minEfficiencyRatio", eff_by_mode[self.strictness_mode]))
         self.cost_discipline = bool(payload.get("costDiscipline", getattr(self, "cost_discipline", True)))
         # Cost cap is now a fraction of the stop (R). Accept the new key, fall back to the old
         # maxSpreadAtrFrac for continuity (same number, now measured against R≈ATR), then the default.
@@ -747,6 +758,7 @@ class GoldDecisionEngine:
             "confluenceByMode":  getattr(self, "confluence_by_mode", {"relaxed": 2, "balanced": 3, "strict": 4, "sniper": 5}),
             "minSessionScore":   self.min_session_score,
             "minEfficiencyRatio": self.min_efficiency_ratio,
+            "efficiencyByMode":  getattr(self, "efficiency_by_mode", {"relaxed": 0.24, "balanced": 0.30, "strict": 0.36, "sniper": 0.42}),
             "costDiscipline": self.cost_discipline,
             "maxSpreadAtrFrac": self.max_spread_atr_frac,
             "maxCostRiskFrac": self.max_spread_atr_frac,
