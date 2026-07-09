@@ -1,0 +1,28 @@
+{
+  "name": "visa-sponsorship-job-copilot",
+  "version": "1.0.0",
+  "description": "AI-powered visa sponsorship job search and application copilot — job discovery, sponsor intelligence, ATS-safe CV optimisation, NHS supporting-statement builder, and application tracker.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed": "node server/seed.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "keywords": [
+    "visa-sponsorship",
+    "job-search",
+    "ats",
+    "cv-optimiser",
+    "nhs",
+    "ai-copilot"
+  ],
+  "author": "Johnsonscode / Segun Johnson",
+  "license": "UNLICENSED"
+}
