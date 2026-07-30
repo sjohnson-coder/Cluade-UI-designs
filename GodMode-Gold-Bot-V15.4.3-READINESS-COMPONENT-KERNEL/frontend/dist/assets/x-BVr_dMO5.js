@@ -1,0 +1,1 @@
+import{v as e}from"./index-Bb_VQLH1.js";var t=e(`X`,[[`path`,{d:`M18 6 6 18`,key:`1bl5f8`}],[`path`,{d:`m6 6 12 12`,key:`d8bk6v`}]]);export{t};

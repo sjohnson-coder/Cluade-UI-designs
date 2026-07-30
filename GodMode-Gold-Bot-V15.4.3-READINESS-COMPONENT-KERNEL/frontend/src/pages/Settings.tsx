@@ -7,7 +7,31 @@ import { useSoundStore } from '../store/soundStore';
 import { api, apiKey } from '../lib/api';
 
 function Row({ label, children }: { label:string; children:ReactNode }) { return <label className="form-row"><span>{label}</span>{children}</label> }
-function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) { return <input className="input form-input" {...props}/> }
+/**
+ * Nine fields on this page are `type="password"`: the MT5 broker password, the Telegram bot token,
+ * four data-feed API keys, the Strategy Lab feed key, the AI provider key and the mobile access key.
+ * None of them are website login credentials, and none belong in the browser's saved-password store —
+ * an operator does not want Chrome offering to remember their broker password or their Anthropic key
+ * alongside their email logins, and an autofilled value silently overwriting a saved API key is a
+ * real hazard. `new-password` is the attribute that reliably suppresses both the save prompt and
+ * autofill across Chromium and Safari; plain `off` is widely ignored for password inputs.
+ *
+ * Chromium also logs `[DOM] Password field is not contained in a form` once per field on every
+ * render, which is why the page below is wrapped in a real <form>.
+ */
+function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  const secret = props.type === 'password';
+  return <input
+    className="input form-input"
+    autoComplete={secret ? 'new-password' : props.autoComplete ?? 'off'}
+    spellCheck={false}
+    autoCorrect="off"
+    autoCapitalize="off"
+    data-1p-ignore={secret ? '' : undefined}
+    data-lpignore={secret ? 'true' : undefined}
+    {...props}
+  />;
+}
 function NumberInput(props: React.InputHTMLAttributes<HTMLInputElement>) { return <input className="input form-input" type="number" step="any" {...props}/> }
 function SelectBox(props: React.SelectHTMLAttributes<HTMLSelectElement>) { return <select className="input form-input" {...props}/> }
 const get=(obj:any,path:string, fallback:any='')=>path.split('.').reduce((a,k)=>a?.[k],obj) ?? fallback;
@@ -243,6 +267,12 @@ export default function Settings(){
     {message && <Card style={{marginBottom:16}}><strong className={message.toLowerCase().includes('failed')||message.toLowerCase().includes('error')?'negative':'positive'}>{message}</strong></Card>}
     {loadError && <Card style={{marginBottom:16}}><strong className="negative">{loadError}</strong></Card>}
     {get(settings,'recoveryState.status','normal')!=='normal' && <Card style={{marginBottom:16}}><strong className="negative">Settings recovery: {get(settings,'recoveryState.detail','Recovery action required.')}</strong></Card>}
+    {/* A real <form> so the password fields are contained in one, which is what Chromium asks for
+        and what stops it logging "[DOM] Password field is not contained in a form" once per
+        field on every render. Submission is prevented because saving here is explicit: the
+        Save & Apply button posts a validated snapshot with an optimistic-concurrency revision,
+        and an accidental Enter keypress must never bypass that. */}
+    <form onSubmit={(e)=>e.preventDefault()} autoComplete="off" noValidate>
     <fieldset disabled={busy} style={{border:0,padding:0,margin:0,minWidth:0,opacity:busy?0.72:1}}><div className="grid grid-4 settings-grid">
       <Card><SectionTitle icon={<Palette size={18}/>} title="1. Appearance"/><Row label="Theme Mode"><div className="segmented"><button onClick={()=>{setTheme('light'); update('appearance.theme','light')}} className={theme==='light'?'gold-button':'ghost-button'}>Light</button><button onClick={()=>{setTheme('dark'); update('appearance.theme','dark')}} className={theme==='dark'?'gold-button':'ghost-button'}>Dark</button><button onClick={()=>{setTheme('system'); update('appearance.theme','system')}} className={theme==='system'?'gold-button':'ghost-button'}>System</button></div></Row><Row label="Density"><SelectBox value={get(settings,'appearance.density','comfortable')} onChange={e=>update('appearance.density',e.target.value)}><option>comfortable</option><option>compact</option></SelectBox></Row><Row label="Sound Effects"><button className="outline-button" onClick={()=>{toggleSound(); update('notifications.soundEnabled',!soundEnabled)}}>{soundEnabled ? <><Volume2 size={14}/> Sound On</> : <><VolumeX size={14}/> Muted</>}</button></Row><Row label="Sound Preset"><SelectBox value={preset} onChange={e=>{setPreset(e.target.value as any); update('notifications.soundPreset',e.target.value)}}><option value="chime">Chime</option><option value="soft">Soft</option><option value="alert">Alert</option><option value="minimal">Minimal</option></SelectBox></Row></Card>
       <Card><SectionTitle icon={<Link size={18}/>} title="2. MT5 Connection" right={<Tag color={mt5.connected?'green':'red'}>{mt5.connected?'Connected':'Offline'}</Tag>}/><Checklist items={[{label:'Terminal',value:mt5.available?'Detected':'MetaTrader5 Python package missing',type:mt5.available?'success':'danger'},{label:'Status',value:mt5.connected?'Connected':'Not connected',type:mt5.connected?'success':'danger'},{label:'Broker',value:mt5.broker||'—',type:mt5.connected?'success':'warning'},{label:'Login',value:String(mt5.login||get(settings,'mt5Connection.login','—')||'—')},{label:'Server',value:mt5.server||get(settings,'mt5Connection.server','—')||'—'},{label:'Mode',value:mt5.liveTradingEnabled?'LIVE':'DRY RUN',type:mt5.liveTradingEnabled?'warning':'success'}]}/><Row label="Auto-connect on start"><ToggleSwitch checked={get(settings,'mt5Connection.autoConnect',true)} onChange={v=>update('mt5Connection.autoConnect',v)}/></Row><Row label="Terminal Path"><TextInput value={get(settings,'mt5Connection.terminalPath','')} onChange={e=>update('mt5Connection.terminalPath',e.target.value)} placeholder="Optional: C:\\Program Files\\MetaTrader 5\\terminal64.exe"/></Row><Row label="Login"><TextInput value={get(settings,'mt5Connection.login','')} onChange={e=>update('mt5Connection.login',e.target.value)} placeholder="Optional if MT5 already logged in"/></Row><Row label="Server"><TextInput value={get(settings,'mt5Connection.server','')} onChange={e=>update('mt5Connection.server',e.target.value)} placeholder="Broker server name"/></Row><Row label="Password"><TextInput type="password" value={get(settings,'mt5Connection.password','')} onChange={e=>update('mt5Connection.password',e.target.value)} placeholder="Optional manual login"/></Row><div className="button-wrap"><button className="outline-button" onClick={autoConnect}>Auto-detect Running MT5</button><button className="outline-button" onClick={refresh}><RefreshCcw size={14}/> Refresh</button><button className="gold-button" onClick={connect}>Connect MT5</button></div><p className="tiny muted">If MT5 is already running and logged in, auto-connect runs when the bot starts. Manual login is only needed if your terminal is not already authenticated.</p></Card>
@@ -424,5 +454,6 @@ export default function Settings(){
       <Card style={{gridColumn:'span 2'}}><SectionTitle icon={<KeyRound size={18}/>} title="13. Mobile & Remote Access" right={<Tag color={accessKey?'green':'gold'}>{accessKey?'Session key set':'No session key'}</Tag>}/><Row label="API access key (this session)"><TextInput type="password" value={accessKey} onChange={e=>setAccessKey(e.target.value)} placeholder="Must match the server's GODMODE_API_KEY"/></Row><div className="button-wrap"><button className="gold-button" onClick={()=>{const k=accessKey.trim();apiKey.set(k);setMessage(k?'API key retained for this browser session only.':'API key cleared.')}}><Save size={14}/> Use key this session</button>{accessKey&&<button className="ghost-button" onClick={()=>{setAccessKey('');apiKey.set('');setMessage('API key cleared.')}}>Clear</button>}</div><p className="tiny muted">Set a strong <code>GODMODE_API_KEY</code> on the server, expose the dashboard only through an <strong>HTTPS</strong> endpoint, and enter the same key here. The key is kept in session storage and clears when the browser session ends; it is never accepted over remote plaintext HTTP.</p></Card>
       <Card style={{gridColumn:'span 2'}}><SectionTitle title="14. Save & Apply"/><p className="muted">Press Save & Apply after editing symbol, credentials, magic number, API settings or risk values. Live trading and auto-trading switches apply immediately and persist. (The mobile API key above saves separately, per device.)</p><div className="button-wrap"><button className="ghost-button" onClick={reset}>Reload Saved</button><button className="gold-button" onClick={save}><Save size={14}/> Save & Apply</button></div></Card>
     </div></fieldset>
+    </form>
   </>
 }

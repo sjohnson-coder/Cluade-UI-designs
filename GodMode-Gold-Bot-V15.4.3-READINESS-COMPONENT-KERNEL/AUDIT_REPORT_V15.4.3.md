@@ -315,28 +315,51 @@ Also fixed:
 ## One item to confirm on real hardware
 
 The **Settings** route reproducibly terminates headless Chromium in this sandboxed container about
-half a second after mount. I could not attribute it to application code, and I am not claiming it
-is fixed:
+half a second after mount. I could not attribute it to application code and I am **not** claiming it
+is fixed. Here is everything I established, so you can judge it yourself.
 
-- The page renders correctly — `<h1 class="page-title">Settings</h1>`, not the error boundary.
-- Instrumentation sampled a healthy document: 2,131 DOM nodes, 29 cards, 254 form inputs, **5 MB**
-  heap, 6 running animations. Nothing pathological.
-- No JavaScript errors and no console errors.
-- The same page served from a plain static file server does **not** kill the browser.
-- Chromium logs only repeated `[DOM] Password field is not contained in a form` warnings; the page
-  has 254 inputs including several password fields, and disabling the password manager did not
-  change the outcome.
+**The page itself is healthy at the moment it is sampled:**
+
+- It renders the real page — `<h1 class="page-title">Settings</h1>`, not the error boundary.
+- 2,131 DOM nodes, 29 cards, 254 form inputs, **5 MB** JS heap, 6 running animations.
+- Zero JavaScript errors, zero console errors, and Playwright never receives a `crash` event.
+
+**What I ruled out, each by direct experiment:**
+
+| Hypothesis | Test | Result |
+|---|---|---|
+| Sheer input count | Synthetic page, 254 inputs incl. 9 password fields, no app code | **survives** |
+| CSS animations | Same page with `*,*::before,*::after{animation:none!important}` injected | dies |
+| Reduced motion path | `reducedMotion: 'reduce'` context | dies |
+| The 2 s predictor poll | `/api/fast-sniper/status` stubbed out | dies |
+| Telegram status call | `/api/telegram/status` stubbed out | dies |
+| GPU / rasterisation | `--disable-gpu --disable-software-rasterizer --disable-gpu-compositing` | dies |
+| My own leaked browsers | All Chromium processes killed first, 13 GB free, `/dev/shm` empty | dies |
+| Password-manager warnings | Fields wrapped in a `<form>`, `autocomplete="new-password"` | dies (warnings gone) |
+| **Populated render** | `/api/settings` stubbed so the form never fills | **survives** |
+
+So it needs the populated form to render, and nothing else I could isolate. A renderer that
+terminates with no JavaScript error, no crash event and a 5 MB heap is not behaving like an
+application fault, but I cannot prove that from inside this container.
 
 This could not be compared against the shipped build, because there the Settings chunk never loaded
-at all — the error boundary caught it first, which is very likely why it was never noticed.
+at all — the error boundary caught it first, which is very likely why it was never noticed. Settings
+is the page you need for MT5 credentials, risk limits, Telegram and the mobile access key, so it is
+worth thirty seconds of your attention.
 
-**Please open Settings once on the real machine.** If it does misbehave there, the two candidates
-are Chromium's form/autofill handling of 254 inputs and this container's GPU-less renderer; I would
-start by wrapping the password fields in a `<form>` element.
+**Please open Settings once on the real machine.** If it misbehaves there too, tell me what the
+browser console says and I will pick it up from there.
 
-One real bug *was* found through this investigation and fixed: the runtime scripts passed absolute
-URLs to the shared bus while `api.ts` prefixed `API_BASE` again, producing
-`http://host:8000http://host:8000/api/settings`. The bus now normalises both forms.
+Two real fixes came out of this investigation:
+
+- The runtime scripts passed absolute URLs to the shared bus while `api.ts` prefixed `API_BASE`
+  again, producing `http://host:8000http://host:8000/api/settings`. Every call from those scripts
+  threw. The bus now normalises both forms.
+- The nine password fields — broker password, Telegram bot token, four data-feed keys, the Strategy
+  Lab key, the AI provider key, the mobile access key — were loose in the document with no
+  `autocomplete` attributes. Browsers were offering to save your broker password and Anthropic API
+  key into the user's password store, and autofill could silently overwrite a saved key. They are
+  now inside a real `<form>` with `autocomplete="new-password"` and password-manager opt-outs.
 
 ---
 
