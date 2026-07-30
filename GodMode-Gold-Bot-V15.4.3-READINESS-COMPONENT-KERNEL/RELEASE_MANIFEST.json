@@ -1,7 +1,7 @@
 {
   "version": "15.4.3",
   "buildId": "V15.4.3-READINESS-COMPONENT-KERNEL",
-  "createdAt": "2026-07-30T18:12:21Z",
+  "createdAt": "2026-07-30T18:14:50Z",
   "tickGuard": {
     "sourceIncluded": true,
     "compiledEx5Included": false,
@@ -29,6 +29,11 @@
       "path": "2_INSTALL_EA_AND_START_GODMODE.bat",
       "size": 1852,
       "sha256": "61050018660351b283e2aee54f5613b22537d41e480471f21f171365f61b0e01"
+    },
+    {
+      "path": "AUDIT_REPORT_V15.4.3.md",
+      "size": 20293,
+      "sha256": "3a0660620a4063245bb7e2934e7b9a137b3b886e24aba76633e19ac9aa9295dd"
     },
     {
       "path": "A_PLUS_HARDENING_REPORT.md",
