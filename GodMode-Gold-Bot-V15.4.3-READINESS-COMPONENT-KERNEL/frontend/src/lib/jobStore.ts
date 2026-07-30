@@ -31,7 +31,13 @@ function poll(key: string) {
   const tick = async () => {
     const st = states[key];
     if (!st || !st.running || !st.jobId) return;
-    const j: any = await api.jobStatus(st.jobId);
+    // api.jobStatus resolves to a fallback rather than rejecting, but a rejection here (an aborted
+    // navigation, a serialisation error) used to escape as an unhandled promise rejection and
+    // silently end the poll loop, leaving a finished backtest stuck at "running" forever with no
+    // way to recover except a page reload.
+    let j: any;
+    try { j = await api.jobStatus(st.jobId); }
+    catch (error) { setState(key, { running: false, error: error instanceof Error ? error.message : 'Job status request failed.' }); return; }
     if (!j?.ok) { setState(key, { running: false, error: j?.message || 'Job was lost.' }); return; }
     if (j.status === 'done') { setState(key, { running: false, pct: 100, stage: 'Done', eta: 0, result: j.result }); return; }
     if (j.status === 'error') { setState(key, { running: false, error: j.message || 'Job failed.' }); return; }
@@ -52,7 +58,11 @@ export const jobStore = {
   async start(key: string, startFn: () => Promise<any>) {
     if (states[key]?.running) return;
     setState(key, { running: true, pct: 0, stage: 'Starting…', eta: null, result: null, error: undefined, jobId: null, startedAt: Date.now() });
-    const s: any = await startFn();
+    let s: any;
+    // Without this, a throwing startFn left the job pinned at running:true with no jobId, so the
+    // Run button stayed disabled for the rest of the session.
+    try { s = await startFn(); }
+    catch (error) { setState(key, { running: false, error: error instanceof Error ? error.message : 'Could not start the job.' }); return; }
     if (s?.ok === false || !s?.jobId) { setState(key, { running: false, error: s?.message || 'Could not start the job.' }); return; }
     setState(key, { jobId: s.jobId });
     poll(key);

@@ -1,4 +1,7 @@
 {
+  "name": "godmode-gold-bot-frontend",
+  "private": true,
+  "version": "15.4.3",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "vite build",
@@ -6,13 +9,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "framer-motion": "11.3.19",
     "lightweight-charts": "4.2.0",
     "lucide-react": "0.468.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "recharts": "2.12.7",
-    "typescript": "5.5.4",
     "zustand": "4.5.4"
   },
   "devDependencies": {

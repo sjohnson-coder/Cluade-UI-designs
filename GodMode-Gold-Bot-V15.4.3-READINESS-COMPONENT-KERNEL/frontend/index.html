@@ -2,18 +2,81 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>GodMode Gold Trading Bot</title>
-  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate"/>
-  <meta name="godmode-build" content="V15.2.0-EARLY-IMPULSE-PREDICTOR"/>
+  <!--
+    The `<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">` that used
+    to sit here has been removed. It applied to every subresource the document pulled in, so the
+    ~1.3 MB of content-hashed JS/CSS under /assets was re-downloaded in full on every load and every
+    navigation — the exact thing hashed filenames exist to make unnecessary. Only the HTML document
+    itself must stay uncached so a new build is picked up immediately, and the backend already does
+    that: app.py serves index.html with INDEX_NO_STORE headers, which is the authoritative place
+    for it since a real HTTP header beats a meta tag the browser only applies after parsing.
+  -->
+  <meta name="godmode-build" content="V15.4.3-READINESS-COMPONENT-KERNEL"/>
   <meta name="description" content="Institutional XAUUSD AI trading terminal — GodMode Gold Trading Bot"/>
+  <meta name="color-scheme" content="dark light"/>
+  <meta name="theme-color" content="#0a0e14" media="(prefers-color-scheme: dark)"/>
+  <meta name="theme-color" content="#f7f5f0" media="(prefers-color-scheme: light)"/>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+
+  <!--
+    Fonts load without blocking first paint. This was a plain render-blocking <link>, so the
+    terminal showed nothing at all until a third-party CSS round-trip completed — and on a machine
+    with no outbound internet (a locked-down trading VPS is a normal deployment for this bot) that
+    meant waiting out the full request timeout before anything rendered. print/onload downgrades it
+    to a non-blocking fetch; the <noscript> keeps it working with scripting disabled.
+  -->
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link id="gm-fonts" rel="stylesheet" media="print"
+        href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap"/>
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap"/></noscript>
+
+  <!--
+    Resolve the theme before the bundle executes, so the correct background is on screen from the
+    first frame instead of painting the markup default and correcting once React boots. It is an
+    external file, not an inline block, because the backend serves script-src 'self' with no
+    'unsafe-inline' — the correct policy for an app that can place trades, and one an inline
+    script here would violate outright.
+  -->
+  <script src="/godmode-theme-boot.js"></script>
+  <style>
+    /* Boot state. Without it the operator watched an empty rectangle from first paint until the
+       React bundle parsed and mounted, with nothing to say the app was starting rather than dead. */
+    #root:empty::after{
+      content:"Starting GodMode terminal…";
+      position:fixed;inset:0;display:grid;place-content:center;
+      font:600 13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+      color:#6b7585;background:#0a0e14;letter-spacing:.02em;
+    }
+    [data-theme="light"] #root:empty::after{color:#98a0ad;background:#f7f5f0}
+  </style>
 </head>
 <body>
   <div id="root"></div>
+  <noscript style="display:block;padding:24px;font:400 14px/1.6 system-ui,sans-serif;color:#e8edf4;background:#0a0e14">
+    GodMode requires JavaScript. Enable it for this origin and reload.
+  </noscript>
   <script type="module" src="/src/main.tsx"></script>
+  <!--
+    Runtime enhancement layer. These four scripts and their stylesheets previously existed ONLY in
+    frontend/dist and were referenced only by a hand-edited dist/index.html. Because `vite build`
+    regenerates dist/index.html from THIS file and empties the output directory first, running a
+    build destroyed every one of them and silently removed the Early Impulse settings panel, the
+    predictor live card, the Protected Burst gate trace and the runtime recovery chip. They now
+    live in public/ (so the build copies them) and are declared here (so the build emits the tags).
+    godmode-runtime-bus.js must load first — it gives the rest a shared, coalesced reader.
+  -->
+  <link rel="stylesheet" href="/early-impulse-settings-v1529.css"/>
+  <link rel="stylesheet" href="/predictor-live-v1529.css"/>
+  <link rel="stylesheet" href="/burst-live-v1530.css"/>
+  <link rel="stylesheet" href="/runtime-recovery-v1532.css"/>
+  <script src="/godmode-runtime-bus.js" defer></script>
   <script src="/v15-enterprise.js" defer></script>
+  <script src="/early-impulse-settings-v1529.js" defer></script>
+  <script src="/predictor-live-v1529.js" defer></script>
+  <script src="/burst-live-v1530.js" defer></script>
+  <script src="/runtime-recovery-v1532.js" defer></script>
 </body>
 </html>

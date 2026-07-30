@@ -3,6 +3,7 @@ import { AlertTriangle, RefreshCcw, Save, ShieldCheck } from 'lucide-react';
 import { Card, Checklist, DataTable, MetricCard, PageHeader, ProgressBar, SectionTitle, Tag, ToggleSwitch } from '../components/ui';
 import { Donut } from '../components/Charts';
 import { api } from '../lib/api';
+import { usePoll } from '../lib/usePoll';
 const money=(v:any,c='')=>`${c?c+' ':''}${Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const pct=(v:any)=>`${Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}%`;
 
@@ -19,7 +20,7 @@ export default function Risk(){
   const load=async()=>setData(await api.risk());
   const refresh=async()=>{setRefreshing(true);await load();if(alertsOpen){const n:any=await api.notifications();setNotes(n?.items||[])}setMessage('Risk data refreshed.');setTimeout(()=>setMessage(''),1500);setRefreshing(false)};
   const viewAllAlerts=async()=>{if(!alertsOpen){const n:any=await api.notifications();setNotes(n?.items||[])}setAlertsOpen(o=>!o)};
-  useEffect(()=>{load(); const id=setInterval(load,7000); return()=>clearInterval(id)},[]);
+  usePoll(load,7000);
   // Seed editable session caps once from the persisted limits (don't clobber edits on poll).
   useEffect(()=>{const sc=data?.limits?.sessionCaps; if(sc&&Object.keys(caps).length===0)setCaps(sc)},[data]);
   const acc=data.account||{}, currency=acc.currency||''; const active=data.trades?.active||[];

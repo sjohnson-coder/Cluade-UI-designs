@@ -4,6 +4,7 @@ import { Card, Checklist, DataTable, MetricCard, PageHeader, ProgressBar, Sectio
 import { BarDistribution, Donut, DrawdownChart, EquityCurve, ReturnsCalendar, ReturnsHeatmap, ScatterPerformance } from '../components/Charts';
 import { api, downloadExport } from '../lib/api';
 import { jobStore, useJob, type JobState } from '../lib/jobStore';
+import { usePoll } from '../lib/usePoll';
 // Progress + Stop for a background job. Reads from the module-level store, so it keeps showing the
 // live run (and lets you Stop it) even after you switch tabs and come back.
 function JobBar({job,onStop,label}:{job:JobState;onStop:()=>void;label:string}){
@@ -44,7 +45,7 @@ export default function Analytics(){
   const [data,setData]=useState<any>({kpis:{},history:[]}),[report,setReport]=useState<any|null>(null),[tab,setTab]=useState('Overview');
   const [dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState(''),[account,setAccount]=useState('All Accounts');
   const load=async()=>setData(await api.analytics(dateFrom,dateTo));
-  useEffect(()=>{load();const id=setInterval(load,10000);return()=>clearInterval(id)},[dateFrom,dateTo]);
+  usePoll(load,10000,[dateFrom,dateTo]);
   const k=data.kpis||{}, currency=data.currency||data.account?.currency||'';
   const getReport=async()=>setReport(await api.docsInfo());
   const topRows=data.topStrategies||[];
@@ -247,7 +248,7 @@ function ExitLabWfoCards(){
 function DecisionLogTab(){
   const [items,setItems]=useState<any[]>([]),[counts,setCounts]=useState<any>({}),[cat,setCat]=useState('all'),[loading,setLoading]=useState(false);
   const load=async()=>{setLoading(true);const r:any=await api.journalDecisions(cat,300);setItems(r?.items||[]);setCounts(r?.counts||{});setLoading(false)};
-  useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id)},[cat]);
+  usePoll(load,5000,[cat]);
   const clear=async()=>{await api.journalDecisionsClear();load()};
   // V13.10: missed_pump rows existed in the API but had no chip, no badge, and were mapped to a
   // phantom "Closed #" with the blocking reason dropped entirely. All three fixed below.

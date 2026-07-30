@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bot, Download, PlayCircle, RefreshCcw, SlidersHorizontal, X } from 'lucide-react';
 import { Card, DataTable, MetricCard, PageHeader, ProgressBar, SectionTitle, SideBadge, Tag } from '../components/ui';
 import { api, downloadExport } from '../lib/api';
+import { usePoll } from '../lib/usePoll';
 const notify=(title:string,body:string,sound='success')=>window.dispatchEvent(new CustomEvent('godmode:notify',{detail:{title,body,sound}}));
 const money=(v:any,c='')=>`${Number(v||0)>=0?'+':''}${c?c+' ':''}${Number(v||0).toLocaleString(undefined,{maximumFractionDigits:2})}`;
 const toDate=(value:any)=>{ if(!value) return ''; const d=new Date(value); return Number.isNaN(d.getTime()) ? String(value).slice(0,10) : d.toISOString().slice(0,10); };
@@ -21,7 +22,7 @@ export default function Trades(){
   // Poll fast (1.5s) ONLY while a position is actually open; relax to 8s when flat so we
   // don't hammer MT5 for nothing.
   const hasOpen=(data?.active?.length||0)>0;
-  useEffect(()=>{load(); const id=setInterval(()=>{if(!document.hidden) void load()},hasOpen?2000:10000); return()=>clearInterval(id)},[hasOpen]);
+  usePoll(load, hasOpen?2000:10000, [hasOpen]);
   const currency=data?.account?.currency || data?.currency || '';
   const matchSide=(t:any)=>side==='ALL'||String(t.direction||t.side||'').toUpperCase()===side;
   const matchDate=(t:any)=>{const d=toDate(t.closeTime||t.openTime||t.date||t.time); if(dateFrom && d<dateFrom) return false; if(dateTo && d>dateTo) return false; return true;};

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,8 @@ from services.runner_capture_policy import (
     resolve_single_position_broker_tp,
     update_qualified_peak,
 )
+
+from dist_assets import main_bundle
 
 ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "backend" / "app.py"
@@ -248,12 +251,21 @@ def test_closed_trade_attribution_preserves_raw_and_qualified_peak_and_tp_policy
 
 
 def test_production_chunks_reference_the_packaged_main_bundle():
+    """Every entry reference in the build resolves to a file that exists.
+
+    This used to assert the literal name index-V1543-READINESS-COMPONENT-KERNEL.js, which Vite
+    never emits — it hashes chunk names — so the assertion held only for the hand-renamed dist
+    that shipped and broke the moment anyone ran the documented rebuild. The invariant the test
+    was reaching for is that no chunk points at a bundle that is not in the build, which is what
+    is checked here, against whatever names the bundler chose.
+    """
     dist_assets = ROOT / "frontend" / "dist" / "assets"
-    main_name = "index-V1543-READINESS-COMPONENT-KERNEL.js"
-    assert (dist_assets / main_name).exists()
-    broken = []
+    assert main_bundle().is_file()
+    present = {p.name for p in dist_assets.glob("*.js")}
+    dangling = []
     for path in dist_assets.glob("*.js"):
-        source = path.read_text(encoding="utf-8")
-        if "index-V1513-JOURNAL-DRIVEN-FIXES.js" in source:
-            broken.append(path.name)
-    assert broken == []
+        source = path.read_text(encoding="utf-8", errors="ignore")
+        for ref in re.findall(r'["\'/]([A-Za-z0-9_.-]+-[A-Za-z0-9_-]{6,}\.js)["\']', source):
+            if ref not in present:
+                dangling.append((path.name, ref))
+    assert dangling == [], f"chunks reference bundles that are not in the build: {dangling}"

@@ -4,11 +4,13 @@ import ast
 import json
 from pathlib import Path
 
+from dist_assets import chunk_containing
+
 ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "backend" / "app.py"
 SETTINGS = ROOT / "backend" / "data" / "settings.json"
 UI = ROOT / "frontend" / "src" / "pages" / "Settings.tsx"
-DIST_SETTINGS = ROOT / "frontend" / "dist" / "assets" / "Settings-V1513-JOURNAL-DRIVEN-FIXES.js"
+
 
 
 def _function_source(name: str) -> str:
@@ -171,7 +173,8 @@ def test_v1528_settings_migration_adds_runner_controls_without_overwriting_custo
 
 
 def test_production_settings_bundle_exposes_runner_intelligence_controls():
-    source = DIST_SETTINGS.read_text(encoding="utf-8")
+    # Located by content, not by the hand-renamed filename the shipped dist carried.
+    source = chunk_containing("Deterministic Runner Intelligence").read_text(encoding="utf-8")
     assert "Deterministic Runner Intelligence" in source
     assert "trading.tradeManagement.runnerContinuationScore" in source
     assert "trading.tradeManagement.runnerGivebackFraction" in source

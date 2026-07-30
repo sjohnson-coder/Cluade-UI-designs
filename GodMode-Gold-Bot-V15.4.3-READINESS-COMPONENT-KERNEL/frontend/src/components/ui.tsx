@@ -1,4 +1,4 @@
-import { CSSProperties, ReactNode, useEffect, useState, HTMLAttributes } from 'react';
+import { CSSProperties, ReactNode, useEffect, useId, useState, HTMLAttributes } from 'react';
 import { CheckCircle2, CircleAlert, CircleX } from 'lucide-react';
 
 export function Card({children,className='',soft=false,style,...props}:{children:ReactNode;className?:string;soft?:boolean;style?:CSSProperties}&HTMLAttributes<HTMLDivElement>){return <div {...props} style={style} className={`card ${soft?'soft':''} ${className}`}>{children}</div>}
@@ -6,10 +6,17 @@ export function PageHeader({title,subtitle,right}:{title:string;subtitle?:string
 export function Tag({children,color=''}:{children:ReactNode;color?:'green'|'red'|'gold'|'blue'|'purple'|'amber'|''}){return <span className={`tag ${color}`}>{children}</span>}
 export function SideBadge({side}:{side:string}){return <Tag color={side==='BUY'?'green':side==='SELL'?'red':'gold'}>{side || 'WAIT'}</Tag>}
 export function MetricCard({label,value,delta}:{label:string;value:ReactNode;delta?:ReactNode}){return <Card className="metric-card"><div><div className="label">{label}</div><div className="value">{value}</div>{delta&&<div className="tiny positive" style={{marginTop:6}}>{delta}</div>}</div></Card>}
-export function ConfidenceRing({value=0,size=112,label='Confidence'}:{value?:number;size?:number;label?:string}){const safe=Math.max(0,Math.min(100,Number(value)||0));const stroke=Math.max(6,Math.round(size*0.08));const r=(size-stroke-4)/2,c=2*Math.PI*r,off=c-(safe/100)*c;const uid=`ring-${size}-${Math.round(safe)}`;
+export function ConfidenceRing({value=0,size=112,label='Confidence'}:{value?:number;size?:number;label?:string}){
+  const safe=Math.max(0,Math.min(100,Number(value)||0));const stroke=Math.max(6,Math.round(size*0.08));const r=(size-stroke-4)/2,c=2*Math.PI*r,off=c-(safe/100)*c;
+  // The gradient id was `ring-${size}-${Math.round(safe)}`, which is not unique: the Dashboard and
+  // Signals pages render several rings at the same size, and any two showing the same rounded
+  // percentage emitted duplicate SVG ids into one document. url(#id) resolves to the first match,
+  // so rings silently borrowed each other's gradient. It also changed on every value tick, forcing
+  // React to tear down and recreate the <defs> node on each poll. useId is stable per instance.
+  const uid=`ring${useId().replace(/:/g,'')}`;
   // Scale the inner text with the ring so small rings (78px featured cards) don't overflow
   const pctSize=Math.max(13,Math.round(size*0.22));const lblSize=Math.max(8,Math.round(size*0.085));
-  return <div className="confidence-ring" style={{width:size,height:size}}><svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}><defs><linearGradient id={uid} x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="var(--green)"/><stop offset="100%" stopColor="var(--gold)"/></linearGradient></defs><circle cx={size/2} cy={size/2} r={r} stroke="var(--ring-track)" strokeWidth={stroke} fill="none"/><circle cx={size/2} cy={size/2} r={r} stroke={`url(#${uid})`} strokeWidth={stroke} strokeLinecap="round" fill="none" strokeDasharray={c} strokeDashoffset={off}/></svg><div className="inside"><div className="pct" style={{fontSize:pctSize,lineHeight:1}}>{Math.round(safe)}%</div><div className="lbl" style={{fontSize:lblSize}}>{label}</div></div></div>}
+  return <div className="confidence-ring" style={{width:size,height:size}} role="img" aria-label={`${label}: ${Math.round(safe)} percent`}><svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true"><defs><linearGradient id={uid} x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="var(--green)"/><stop offset="100%" stopColor="var(--gold)"/></linearGradient></defs><circle cx={size/2} cy={size/2} r={r} stroke="var(--ring-track)" strokeWidth={stroke} fill="none"/><circle cx={size/2} cy={size/2} r={r} stroke={`url(#${uid})`} strokeWidth={stroke} strokeLinecap="round" fill="none" strokeDasharray={c} strokeDashoffset={off}/></svg><div className="inside"><div className="pct" style={{fontSize:pctSize,lineHeight:1}}>{Math.round(safe)}%</div><div className="lbl" style={{fontSize:lblSize}}>{label}</div></div></div>}
 export function ProgressBar({value}:{value:number}){return <div className="progress-track"><div className="progress-fill" style={{width:`${Math.max(0,Math.min(100,Number(value)||0))}%`}}/></div>}
 export function ToggleSwitch({checked=true,onChange,disabled=false}:{checked?:boolean;onChange?:(value:boolean)=>void;disabled?:boolean}){const [on,setOn]=useState(checked);useEffect(()=>setOn(checked),[checked]);const toggle=()=>{if(disabled)return;const next=!on;setOn(next);onChange?.(next)};return <button type="button" aria-pressed={on} aria-label={on?'Switch on':'Switch off'} disabled={disabled} onClick={toggle} className={`toggle ${on?'on':''}`}/>} 
 export function SelectInput({children}:{children:ReactNode}){return <button className="select">{children}</button>}

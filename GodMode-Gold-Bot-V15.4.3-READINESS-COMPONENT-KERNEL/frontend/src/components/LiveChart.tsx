@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, CrosshairMode, LineStyle, IChartApi, ISeriesApi, IPriceLine, UTCTimestamp } from 'lightweight-charts';
+import { api } from '../lib/api';
 
 interface Candle { time:number; open:number; high:number; low:number; close:number; volume?:number; tick_volume?:number }
 interface Marker { time:number; side:string; text?:string }
@@ -50,7 +51,7 @@ export function LiveChart({ candles=[], markers=[], levels={}, liveTrade=null, h
   liveTradeRef.current = liveTrade;
   const [tf, setTf] = useState<TF>('M15');
   const [tfCandles, setTfCandles] = useState<Candle[]|null>(null);   // null = use prop candles (settings TF)
-  const [legend, setLegend] = useState<string>('');
+  const legendRef = useRef<HTMLSpanElement|null>(null);
 
   const data = tfCandles ?? candles;
 
@@ -80,17 +81,25 @@ export function LiveChart({ candles=[], markers=[], levels={}, liveTrade=null, h
 
     chartRef.current = chart; seriesRef.current = series; volRef.current = vol;
 
-    // OHLC legend follows the crosshair — the TradingView reading experience
+    // OHLC legend follows the crosshair. This fires on every pointer move across the pane, so it
+    // must never call setState — that would re-render this whole component (and the chart's React
+    // subtree) at pointer-move frequency. The text is written straight to the DOM node instead,
+    // which is what the live P&L badge below already does.
     chart.subscribeCrosshairMove((p)=>{
+      const el = legendRef.current;
+      if(!el) return;
       const d:any = p?.seriesData?.get(series);
-      if(d && d.open!=null) setLegend(`O ${d.open.toFixed(2)}  H ${d.high.toFixed(2)}  L ${d.low.toFixed(2)}  C ${d.close.toFixed(2)}`);
-      else setLegend('');
+      el.textContent = (d && d.open!=null)
+        ? `O ${d.open.toFixed(2)}  H ${d.high.toFixed(2)}  L ${d.low.toFixed(2)}  C ${d.close.toFixed(2)}`
+        : '';
     });
 
-    const reposition = ()=>positionBadge();
-    chart.timeScale().subscribeVisibleLogicalRangeChange(reposition);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(()=>positionBadge());
 
-    const ro = new ResizeObserver(()=>{ if(containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }); reposition(); });
+    // autoSize is enabled above, so lightweight-charts already owns resize handling. The
+    // ResizeObserver that used to sit here called applyOptions({width}) on top of it, giving every
+    // resize two layout passes and fighting the library for the canvas width.
+    const ro = new ResizeObserver(()=>positionBadge());
     ro.observe(containerRef.current);
     const mo = new MutationObserver(()=>{
       const d = isDarkTheme();
@@ -102,17 +111,18 @@ export function LiveChart({ candles=[], markers=[], levels={}, liveTrade=null, h
   }, [height]);
 
   // ---- TF switcher: fetch its own candles; settings-TF uses the live prop stream ----
+  // This used a bare fetch() against a relative path, which skipped VITE_API_BASE_URL, the
+  // X-GodMode-Key header and the request timeout. On any server started with an access key —
+  // which start_backend_mobile.bat requires — every timeframe other than M15 silently 401'd and
+  // the chart just kept showing stale bars. Routing through api.candles() fixes all three.
   useEffect(()=>{
-    let dead=false;
     if(tf==='M15'){ setTfCandles(null); return; }        // default TF rides the dashboard's live stream
+    let dead=false;
     const load=async()=>{
-      try{
-        const r=await fetch(`/api/market/candles?tf=${tf}&count=500`);
-        const j=await r.json();
-        if(!dead && Array.isArray(j.candles)) setTfCandles(j.candles);
-      }catch{/* keep whatever we have */}
+      const j:any = await api.candles(tf, 500);
+      if(!dead && Array.isArray(j?.candles)) setTfCandles(j.candles);
     };
-    load();
+    void load();
     const iv=setInterval(()=>{if(!document.hidden) void load()}, tf==='M1'?5000: tf==='M5'?8000: 30000);
     return ()=>{ dead=true; clearInterval(iv); };
   }, [tf]);
@@ -221,7 +231,7 @@ export function LiveChart({ candles=[], markers=[], levels={}, liveTrade=null, h
             }}>{t}</button>
           ))}
         </div>
-        {legend&&<span style={{ fontSize:11, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>{legend}</span>}
+        <span ref={legendRef} style={{ fontSize:11, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)', fontFamily:'var(--font-mono)' }}/>
       </div>
       {/* live P&L badge — rides the price, exists only while a trade is open */}
       <div ref={badgeRef} style={{ position:'absolute', right:76, zIndex:4, display:'none', padding:'3px 8px',

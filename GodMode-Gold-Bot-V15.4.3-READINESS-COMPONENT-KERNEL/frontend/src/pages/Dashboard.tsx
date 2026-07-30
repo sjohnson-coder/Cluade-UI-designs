@@ -4,12 +4,37 @@ import { Card, Checklist, ConfidenceRing, DataTable, MetricCard, PageHeader, Pro
 import { EquityCurve, MiniCandleBlock } from '../components/Charts';
 import { LiveChart } from '../components/LiveChart';
 import { api } from '../lib/api';
+import { usePoll } from '../lib/usePoll';
 import aiNode from '../assets/godmode-ai-node.svg';
 import EconomicCalendar from './EconomicCalendar';
 const money=(v:any,c='')=>`${c?c+' ':''}${Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const price=(v:any)=>Number(v||0)>0?Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:3}):'—';
 const readCache=(key:string,fallback:any=null)=>{try{const raw=localStorage.getItem(key);return raw?JSON.parse(raw):fallback}catch{return fallback}};
-const writeCache=(key:string,value:any)=>{try{localStorage.setItem(key,JSON.stringify(value))}catch{}};
+
+// localStorage.setItem is synchronous and blocks the main thread, and JSON.stringify of a live
+// dashboard snapshot is not free. Doing both inline on every poll meant a guaranteed stall on the
+// same cadence as the poll itself — the jank you could feel while scrolling with a position open.
+// The cache only exists to paint instantly when you navigate back to this page, so it does not need
+// to be current to the millisecond: writes are coalesced to at most one per second and deferred to
+// an idle callback so they land between frames instead of inside one.
+const cacheWriteAt: Record<string, number> = {};
+const cacheWritePending: Record<string, any> = {};
+const idle: (cb: () => void) => void =
+  typeof requestIdleCallback === 'function'
+    ? (cb) => requestIdleCallback(cb, { timeout: 1000 })
+    : (cb) => window.setTimeout(cb, 0);
+const writeCache=(key:string,value:any)=>{
+  cacheWritePending[key]=value;
+  const now=Date.now();
+  if(now-(cacheWriteAt[key]||0)<1000) return;
+  cacheWriteAt[key]=now;
+  idle(()=>{
+    const pending=cacheWritePending[key];
+    if(pending===undefined) return;
+    delete cacheWritePending[key];
+    try{localStorage.setItem(key,JSON.stringify(pending))}catch{ /* quota or private mode — the cache is an optimisation, never a requirement */ }
+  });
+};
 
 function StrategyChip({s,active}:{s:any;active?:boolean}){return <Tag color={active?'green':'gold'}>{s?.name || s?.id || 'Waiting'}</Tag>}
 function TradeLine({label,value,tone}:{label:string;value:any;tone?:'green'|'red'|'gold'}){return <div className="trade-line"><span>{label}</span><strong className={tone==='green'?'positive':tone==='red'?'negative':tone==='gold'?'gold':''}>{value}</strong></div>}
@@ -40,27 +65,25 @@ export default function Dashboard(){
  const loadPredictorStatus=async(manual=false)=>{if(manual)setDiagFeedback('Refreshing…'); const r:any=await api.fastSniperStatus(); setPredictorStatus(r||{}); if(manual){setDiagFeedback(r?.ok===false?'Refresh failed — retrying live feed.':`Updated ${new Date().toLocaleTimeString()}`); setTimeout(()=>setDiagFeedback(''),2500)}};
  const loadBurstStatus=async()=>{const r:any=await api.protectedBurstStatus(); setBurstStatus(r||{});};
  const load=async(initial=false)=>{await loadDashboard(initial); setTimeout(loadFeeds,50); setTimeout(loadStrategies,120)};
- useEffect(()=>{
-   loadDashboard(true); setTimeout(loadFeeds,50); setTimeout(loadStrategies,120);
-   // V13.5: 1.5s while a trade is open so the chart marker + live PnL badge track price;
-   // 4s when flat. The old flat 4s sat on top of a 6s backend cache = up to 10s stale.
-   // V13.7: 800ms while a trade is open. The backend hot path is ~1ms (_live_market 0.96ms,
-   // _live_trades 0.18ms) and the engine now PUSHES both caches every ~1s loop, so the
-   // browser poll was the binding constraint on how live the price marker felt.
-   const dashId=setInterval(()=>{if(!document.hidden) void loadDashboard(false)},hasOpenTrade?1800:6000);
-   const feedId=setInterval(()=>{if(!document.hidden) void loadFeeds()},120000);
-   const stratId=setInterval(loadStrategies,90000);
-   const missId=setInterval(()=>{if(!document.hidden) void loadMissed()},60000); loadMissed();
-   return()=>{clearInterval(dashId);clearInterval(feedId);clearInterval(stratId);clearInterval(missId)};
- // eslint-disable-next-line react-hooks/exhaustive-deps
- },[hasOpenTrade]);
- useEffect(()=>{
-   void loadBurstStatus(); void loadPredictorStatus();
-   const predictorId=setInterval(()=>{if(!document.hidden) void loadPredictorStatus()},1000);
-   const burstId=setInterval(()=>{if(!document.hidden) void loadBurstStatus()},1000);
-   return()=>{clearInterval(burstId);clearInterval(predictorId)};
+ useEffect(()=>{ loadDashboard(true); setTimeout(loadFeeds,50); setTimeout(loadStrategies,120);
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[]);
+ // V13.5: 1.5s while a trade is open so the chart marker + live PnL badge track price; 4s when flat.
+ // V13.7: 800ms while a trade is open — the backend hot path is ~1ms and the engine pushes both
+ //        caches every ~1s loop, so the browser poll was the binding constraint on liveness.
+ // Audit: these are now gaps BETWEEN completed requests rather than fixed wall-clock ticks, so a
+ //        slow backend can no longer be handed a second request before the first one has answered.
+ //        /api/dashboard also dropped from 420 KB to ~40 KB (9 KB gzipped) once the closed-trade
+ //        history the Dashboard never reads stopped being shipped on every tick.
+ usePoll(()=>loadDashboard(false), hasOpenTrade?1800:6000, [hasOpenTrade]);
+ usePoll(loadFeeds, 120000);
+ usePoll(loadStrategies, 90000);
+ usePoll(loadMissed, 60000);
+ // Both status endpoints are also polled at 1 Hz by the predictor-live and burst-live runtime
+ // scripts. api.ts coalesces concurrent reads of the same path, so the pair costs one request
+ // per second in total rather than the two per second per endpoint it measured before.
+ usePoll(()=>loadPredictorStatus(), 1000);
+ usePoll(loadBurstStatus, 1000);
  const account=data?.account||{}, market=data?.market||{}, trades=data?.trades||{active:[],pending:[],history:[]}, decision=data?.decision||{};
  const activeTrade=(trades.active||[])[0]; const hasActiveTrade=Boolean(activeTrade?.ticket);
  const connected=Boolean(market.connected||account.connected);

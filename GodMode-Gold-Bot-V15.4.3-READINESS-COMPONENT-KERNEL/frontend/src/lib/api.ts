@@ -3,7 +3,39 @@ const GODMODE_API_KEY = import.meta.env.VITE_GODMODE_API_KEY || '';
 export const FRONTEND_BUILD_ID='V15.4.3-READINESS-COMPONENT-KERNEL';
 export type SafetyState='LIVE'|'STALE'|'OFFLINE'|'AUTH_REQUIRED'|'DEGRADED';
 let safetyState: SafetyState = 'OFFLINE';
+
+// Last-good response per GET path, used to keep the UI populated when the backend blips.
+// This is a bounded LRU: previously an unbounded Map, and because job polling keys on
+// `/api/jobs/<uuid>` a long session accumulated one permanently-retained entry per job.
+const RESPONSE_CACHE_LIMIT = 96;
 const responseCache = new Map<string, {at:number; json:any}>();
+function cacheGet(key: string) {
+  const hit = responseCache.get(key);
+  if (hit) { responseCache.delete(key); responseCache.set(key, hit); }   // refresh LRU recency
+  return hit;
+}
+function cacheSet(key: string, json: any) {
+  responseCache.delete(key);
+  responseCache.set(key, { at: Date.now(), json });
+  while (responseCache.size > RESPONSE_CACHE_LIMIT) {
+    const oldest = responseCache.keys().next();
+    if (oldest.done) break;
+    responseCache.delete(oldest.value);
+  }
+}
+
+// Concurrent GETs of the same path share one network round-trip.
+//
+// Five independent consumers poll this backend: the React shell, the Dashboard page, and three
+// vanilla runtime scripts loaded from index.html. Measured steady state was ~6.5 requests/second
+// with /api/fast-sniper/status and /api/trading-modes/protected-burst/status each fetched twice
+// per second by two different code paths that had no idea about each other. Coalescing collapses
+// duplicate in-flight reads without changing any caller.
+//
+// The map is also published on window so the non-module runtime scripts can join the same pool
+// (see public/godmode-runtime-bus.js).
+const inflight = new Map<string, Promise<any>>();
+
 
 // Runtime API key (set in Settings → Security, retained for this browser tab/session only). Used to authenticate the UI
 // when the server is exposed for mobile/remote access (server: set GODMODE_API_KEY to the same value).
@@ -20,12 +52,34 @@ export const apiKey = {
   },
 };
 
+// Hosts the operator reaches over a link they physically control: loopback, RFC1918 LAN, link-local,
+// CGNAT (which is the Tailscale 100.64.0.0/10 range), and mDNS names. MOBILE_REMOTE_ACCESS.md
+// documents exactly these two topologies — "http://192.168.1.20:8000" on home Wi-Fi and
+// "http://100.101.102.103:8000" over Tailscale — and the previous check treated both as insecure
+// public transport. Because the guard sits at the top of request() ahead of the method test, it
+// short-circuited *every* call including GETs, so the documented phone dashboard loaded its shell
+// and then showed nothing but offline fallbacks. Genuinely public plaintext hosts are still blocked.
+function isPrivateHost(host: string): boolean {
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return true;
+  if (host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true;
+  if (host.startsWith('[fe80:') || host.startsWith('[fc') || host.startsWith('[fd')) return true;  // IPv6 link-local / ULA
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!v4) return false;
+  const [a, b] = [Number(v4[1]), Number(v4[2])];
+  if ([a, b, Number(v4[3]), Number(v4[4])].some((n) => n > 255)) return false;
+  if (a === 127 || a === 10) return true;                 // loopback, 10.0.0.0/8
+  if (a === 192 && b === 168) return true;                // 192.168.0.0/16
+  if (a === 172 && b >= 16 && b <= 31) return true;       // 172.16.0.0/12
+  if (a === 169 && b === 254) return true;                // 169.254.0.0/16 link-local
+  if (a === 100 && b >= 64 && b <= 127) return true;      // 100.64.0.0/10 CGNAT — Tailscale
+  return false;
+}
+
 function insecureRemoteTransport(): boolean {
   try {
     const url = new URL(API_BASE);
-    const host = url.hostname.toLowerCase();
-    const loopback = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-    return url.protocol !== 'https:' && !loopback;
+    if (url.protocol === 'https:') return false;
+    return !isPrivateHost(url.hostname.toLowerCase());
   } catch {
     return true;
   }
@@ -73,11 +127,22 @@ export async function refreshExecutionReadiness(): Promise<{reachable:boolean; b
   }
 }
 
-async function request(path: string, fallback: any, init?: RequestInit) {
+function request(path: string, fallback: any, init?: RequestInit) {
+  const method = (init?.method || 'GET').toUpperCase();
+  // Mutations are never shared — each one must reach the broker on its own.
+  if (method !== 'GET') return requestOnce(path, fallback, init);
+  const pending = inflight.get(path);
+  if (pending) return pending;
+  const run = requestOnce(path, fallback, init).finally(() => { inflight.delete(path); });
+  inflight.set(path, run);
+  return run;
+}
+
+async function requestOnce(path: string, fallback: any, init?: RequestInit) {
   const method = (init?.method || 'GET').toUpperCase();
   if (insecureRemoteTransport()) {
     safetyState='DEGRADED';
-    const detail = 'Remote dashboard access requires HTTPS. Plaintext HTTP is disabled to protect account data and API credentials.';
+    const detail = 'Remote dashboard access over the public internet requires HTTPS. Plaintext HTTP is only permitted to loopback, your LAN, or a Tailscale address.';
     try { window.dispatchEvent(new CustomEvent('godmode:safety-state',{detail:{state:safetyState,path}})); } catch {}
     return { ...fallback, ok:false, blocked:true, message:detail, safetyState };
   }
@@ -148,13 +213,13 @@ async function request(path: string, fallback: any, init?: RequestInit) {
       } catch {}
     }
     if (!res.ok && path !== '/api/readiness') return { ...fallback, ...json, ok:false, httpStatus:res.status };
-    if (method === 'GET' && path !== '/api/settings') responseCache.set(cacheKey, { at: Date.now(), json });
+    if (method === 'GET' && path !== '/api/settings') cacheSet(cacheKey, json);
     return json;
   } catch (error) {
     console.warn('[GodMode API]', path, error);
     if (method === 'GET' && path !== '/api/settings') {
       try {
-        const cached = responseCache.get(cacheKey);
+        const cached = cacheGet(cacheKey);
         if (cached?.json) { const staleAgeMs = Math.max(0, Date.now()-Number(cached.at||0)); if(criticalLivePath){ safetyState='STALE'; window.dispatchEvent(new CustomEvent('godmode:stale-data',{detail:{path,staleAgeMs}})); } return { ...cached.json, stale: true, staleReason: 'frontend_memory_cache', staleAgeMs }; }
       } catch {}
     }
@@ -169,6 +234,43 @@ async function request(path: string, fallback: any, init?: RequestInit) {
     window.clearTimeout(timer);
   }
 }
+
+// Shared read bus for the non-module runtime scripts loaded from index.html
+// (predictor-live, burst-live, early-impulse-settings, runtime-recovery). They poll the same
+// status endpoints this module already polls, so routing them through the same coalescer means
+// each endpoint is fetched once per tick instead of once per consumer. A short TTL absorbs the
+// case where two consumers tick a few milliseconds apart rather than simultaneously.
+const busCache = new Map<string, {at:number; json:any}>();
+
+// Accept either "/api/x" or a fully-qualified same-origin URL. The runtime scripts build their
+// requests as `API + path` where API is window.location.origin, and request() prefixes API_BASE
+// itself — so passing the absolute form straight through produced
+// "http://host:8000http://host:8000/api/settings" and every call from those scripts threw
+// "Failed to parse URL". Normalising here means a caller does not have to know whether it reached
+// the api.ts implementation or the standalone one in godmode-runtime-bus.js, which uses raw fetch
+// and tolerates both.
+function toApiPath(target: string): string {
+  if (target.startsWith('/')) return target;
+  try {
+    const url = new URL(target, window.location.origin);
+    return url.pathname + url.search;
+  } catch {
+    return target;
+  }
+}
+
+async function busFetch(target: string, ttlMs = 700, fallback: any = null): Promise<any> {
+  const path = toApiPath(target);
+  const hit = busCache.get(path);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.json;
+  const json = await request(path, fallback);
+  if (json != null) busCache.set(path, { at: Date.now(), json });
+  return json;
+}
+try {
+  (window as any).__godmodeFetchJSON = busFetch;
+  (window as any).__godmodeApiKey = () => apiKey.get();
+} catch { /* a sandboxed window must never break the dashboard */ }
 
 function offline(path: string) {
   return { ok: false, source: 'frontend_offline', detail: `Backend unavailable for ${path}` };
@@ -197,6 +299,7 @@ export const api = {
   status: () => request('/api/status', offline('/api/status')),
   account: () => request('/api/account', emptyAccount),
   marketSnapshot: () => request('/api/market/snapshot', emptyMarket),
+  candles: (tf: string, count = 500) => request(`/api/market/candles?tf=${encodeURIComponent(tf)}&count=${count}`, { ok: false, candles: [] }),
   dashboard: () => request('/api/dashboard', { status: offline('/api/dashboard'), account: emptyAccount, market: emptyMarket, trades: emptyTrades, why: ['Backend offline.'], source: 'frontend_offline' }),
   signals: () => request('/api/signals', []),
   strategies: () => request('/api/strategies', []),
@@ -242,8 +345,13 @@ export const api = {
   breakEvenTrade: (payload: unknown) => request('/api/trades/break-even', { ok: false }, { method: 'POST', body: JSON.stringify(payload) }),
   manageLiveTrade: (payload: unknown) => request('/api/trades/manage-live', { action: 'HOLD' }, { method: 'POST', body: JSON.stringify(payload) }),
 
-  fastSniperStatus: () => request('/api/fast-sniper/status', { ok:false, enabled:false, last:{}, endpointStatus:'UNREACHABLE', message:'Predictor status endpoint unavailable. General backend health may still be live.' }),
-  protectedBurstStatus: () => request('/api/trading-modes/protected-burst/status', { ok:false, enabled:false, status:'UNREACHABLE', canFire:false, blocker:'Protected Burst status endpoint unavailable.', gates:[], sustained:{}, beProgress:{}, risk:{} }),
+  // These two are the only 1 Hz reads in the product, and each has a second consumer outside React
+  // (predictor-live.js and burst-live.js). Their timers are independent, so they land a few hundred
+  // milliseconds apart rather than simultaneously and the in-flight coalescer alone cannot merge
+  // them — measured in the browser, protected-burst/status was still being fetched twice a second.
+  // Routing both consumers through the same short-TTL entry makes 1 Hz mean 1 request per second.
+  fastSniperStatus: () => busFetch('/api/fast-sniper/status', 700, { ok:false, enabled:false, last:{}, endpointStatus:'UNREACHABLE', message:'Predictor status endpoint unavailable. General backend health may still be live.' }),
+  protectedBurstStatus: () => busFetch('/api/trading-modes/protected-burst/status', 700, { ok:false, enabled:false, status:'UNREACHABLE', canFire:false, blocker:'Protected Burst status endpoint unavailable.', gates:[], sustained:{}, beProgress:{}, risk:{} }),
 
   aiDecision: () => request('/api/ai/decision', {}),
   aiActionMatrix: () => request('/api/ai/action-matrix', {}),

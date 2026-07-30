@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, ShieldCheck } from 'lucide-react';
 import { Card, SectionTitle, Tag } from '../components/ui';
+import { usePoll } from '../lib/usePoll';
 
 /**
  * EconomicCalendar — V13.0 (restored)
@@ -40,11 +41,7 @@ export default function EconomicCalendar() {
     } catch (e: any) { setErr(String(e?.message || e)); }
   };
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 60000); // calendar moves in minutes, not ms — 60s is honest
-    return () => clearInterval(t);
-  }, []);
+  usePoll(load, 60000); // calendar moves in minutes, not ms — 60s is honest
 
   const now = Date.now();
   const upcoming = events

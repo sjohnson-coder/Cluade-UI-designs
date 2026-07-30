@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrainCircuit, RefreshCcw, ShieldCheck, Zap } from 'lucide-react';
 import { Card, Checklist, MetricCard, ProgressBar, SectionTitle, Tag } from './ui';
 import { api } from '../lib/api';
+import { usePoll } from '../lib/usePoll';
 
 const pct=(value:any)=>`${Math.round(Number(value||0)*100)}%`;
 
@@ -9,7 +10,7 @@ export function V15Intelligence(){
   const [data,setData]=useState<any>({version:'15.0.5',health:{score:0,ok:false,errors:[]}});
   const [busy,setBusy]=useState(false);
   const load=async()=>{setBusy(true); try{setData(await api.v15Overview())}finally{setBusy(false)}};
-  useEffect(()=>{load(); const id=setInterval(load,10000); return()=>clearInterval(id)},[]);
+  usePoll(load,10000);
   const forecast=data.forecast||{}; const probabilities=forecast.probabilities||{}; const regime=data.regime||{}; const exit=data.exit||{}; const burst=data.burst||{};
   const gateItems=(burst.gates||[]).map((g:any)=>({label:g.name,value:g.passed?'PASS':'BLOCK',type:g.passed?'success':'danger'}));
   return <Card style={{marginTop:16}}>

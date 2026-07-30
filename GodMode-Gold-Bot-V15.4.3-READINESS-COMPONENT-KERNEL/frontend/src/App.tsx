@@ -3,6 +3,7 @@ import { AppShell } from './components/AppShell';
 import { pages } from './router';
 import { ActionCenter } from './components/ActionCenter';
 import { api } from './lib/api';
+import { usePoll } from './lib/usePoll';
 
 function getInitialPage(){return window.location.hash.replace('#/','')||'dashboard'}
 
@@ -36,7 +37,9 @@ export default function App(){
   const[stale,setStale]=useState<{path:string;age:number}|null>(null);
   const[safety,setSafety]=useState<'LIVE'|'STALE'|'OFFLINE'|'AUTH_REQUIRED'|'DEGRADED'>('OFFLINE');
   const[tradingReadiness,setTradingReadiness]=useState<{ready:boolean;warnings:string[];reasons:string[];executionAuthority:any}>({ready:false,warnings:[],reasons:[],executionAuthority:null});
-  useEffect(()=>{const poll=()=>{void api.readiness();}; poll(); const id=window.setInterval(()=>{if(!document.hidden) poll()},8000); return()=>window.clearInterval(id);},[]);
+  // api.readiness() publishes godmode:safety-state / godmode:trading-readiness as a side effect;
+  // the banners below are driven by those events, which is why the result is not read here.
+  usePoll(()=>api.readiness(), 8000);
   const Page=pages[page]||pages.dashboard;
   useEffect(()=>{const onHash=()=>setPage(getInitialPage());window.addEventListener('hashchange',onHash);return()=>window.removeEventListener('hashchange',onHash)},[]);
   useEffect(()=>{const onStale=(e:Event)=>{const d=(e as CustomEvent).detail||{};setStale({path:String(d.path||'API'),age:Number(d.staleAgeMs||0)});setSafety('STALE');};const onLive=()=>{setStale(null);setSafety('LIVE');};const onSafety=(e:Event)=>setSafety(((e as CustomEvent).detail?.state||'OFFLINE'));window.addEventListener('godmode:stale-data',onStale);window.addEventListener('godmode:live-data',onLive);window.addEventListener('godmode:safety-state',onSafety);return()=>{window.removeEventListener('godmode:stale-data',onStale);window.removeEventListener('godmode:live-data',onLive);window.removeEventListener('godmode:safety-state',onSafety)}},[]);

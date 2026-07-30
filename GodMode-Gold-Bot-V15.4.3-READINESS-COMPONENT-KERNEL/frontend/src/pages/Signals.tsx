@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, PlayCircle, RefreshCcw, RotateCcw, SlidersHorizontal, X } from 'lucide-react';
 import { Card, Checklist, ConfidenceRing, DataTable, PageHeader, ProgressBar, SectionTitle, SideBadge, Tag, MiniSparkline } from '../components/ui';
 import { api, downloadExport } from '../lib/api';
+import { usePoll } from '../lib/usePoll';
 const notify=(title:string,body:string,sound='success')=>window.dispatchEvent(new CustomEvent('godmode:notify',{detail:{title,body,sound}}));
 const price=(v:any)=>Number(v||0)>0?Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:3}):'—';
 function Gauge({value}:{value:number}){return <div className="execution-gauge"><ConfidenceRing value={value} size={112} label="Readiness"/><strong>{value>=70?'High':value>=50?'Medium':'Low'}</strong></div>}
@@ -27,7 +28,7 @@ export default function Signals(){
       setMarket({connected:false, source:'frontend_error', message:String(err)});
     }
   };
-  useEffect(()=>{load(); const id=setInterval(load,5000); return()=>clearInterval(id)},[]);
+  usePoll(load,5000);
   const filtered=useMemo(()=>{
     const safeSignals=Array.isArray(signals)?signals:[];
     return safeSignals.filter(s=>(pair==='ALL'||(s.pair||s.symbol||'XAUUSD')===pair)&&(session==='ALL'||s.session===session)&&(strategy==='ALL'||String(s.strategy||'').includes(strategy))&&(status==='ALL'||s.status===status)&&(conf==='ALL'||Number(s.confidence||0)>=Number(conf)));

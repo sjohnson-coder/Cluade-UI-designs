@@ -1,6 +1,8 @@
 from pathlib import Path
 import copy
 
+from dist_assets import runtime_script
+
 
 def _candidate():
     return {
@@ -160,7 +162,7 @@ def test_status_endpoint_exposes_priority_latency_and_build(monkeypatch):
 
 def test_launcher_rejects_stale_backend_and_ui_exposes_priority_latency():
     launcher = Path("START_GODMODE.bat").read_text(encoding="utf-8")
-    ui = Path("frontend/dist/early-impulse-settings.js").read_text(encoding="utf-8")
+    ui = runtime_script("early-impulse-settings").read_text(encoding="utf-8")
     assert "service -eq 'godmode-backend'" in launcher
     assert "/api/fast-sniper/status" in launcher
     assert "priorityIntent" in ui
@@ -207,7 +209,7 @@ def test_priority_candle_context_is_cached_and_forming_m5_is_live(monkeypatch):
 def test_tick_range_is_inside_mt5_ipc_guard_and_latency_controls_are_packaged():
     bridge = Path("backend/services/mt5_bridge.py").read_text(encoding="utf-8")
     settings = Path("backend/data/settings.json").read_text(encoding="utf-8")
-    ui = Path("frontend/dist/early-impulse-settings.js").read_text(encoding="utf-8")
+    ui = runtime_script("early-impulse-settings").read_text(encoding="utf-8")
     assert '"copy_rates", "copy_ticks_range", "open_positions"' in bridge
     for key in (
         "earlyIntentPriorityLoopSeconds",

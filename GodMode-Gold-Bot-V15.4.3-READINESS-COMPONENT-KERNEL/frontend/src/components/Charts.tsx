@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createChart, ColorType, IChartApi } from 'lightweight-charts';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from 'recharts';
 import { CandlestickPreview, Tag } from './ui';
@@ -14,33 +14,88 @@ function normalizeTime(t:any, index:number){
 }
 export function EmptyChart({ message='Waiting for live MT5 data' }: { message?: string }) {return <div className="empty-state"><strong>{message}</strong><span className="muted tiny">Open MetaTrader 5, log in, and keep the backend running.</span></div>}
 
+/**
+ * LiveTradeViewChart.
+ *
+ * The previous implementation listed `JSON.stringify(rows.slice(-120))` as an effect dependency
+ * and called `createChart` inside that effect. Two consequences, both severe on a page that polls
+ * every 1.8 seconds with a position open:
+ *
+ *  • Two full JSON serialisations of the candle set ran on EVERY React render just to compute the
+ *    dependency string, whether or not anything had changed.
+ *  • Whenever any candle value moved — which is what "live" means — the whole chart was destroyed
+ *    (`chart.remove()`) and rebuilt from scratch: new canvas, new series, new price lines, new
+ *    ResizeObserver. That is the most expensive operation this component can perform, and it also
+ *    threw away the user's zoom and pan, so the chart could not actually be explored while live.
+ *
+ * The chart is now created once and fed through `setData`, which is what lightweight-charts is
+ * designed for. Series handles are kept in refs; theme changes re-apply options in place.
+ */
 export function LiveTradeViewChart({data=[],levels=[]}:{data?:Candle[];levels?:Level[]}){
   const ref=useRef<HTMLDivElement|null>(null);
   const chartRef=useRef<IChartApi|null>(null);
-  const [themeVersion,setThemeVersion]=useState(0);
+  const candleRef=useRef<any>(null);
+  const emaRefs=useRef<Record<string,any>>({});
+  const priceLinesRef=useRef<any[]>([]);
   const [chartError,setChartError]=useState<string>('');
-  useEffect(()=>{const obs=new MutationObserver(()=>setThemeVersion(v=>v+1)); obs.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']}); return()=>obs.disconnect()},[]);
-  const rows=(data||[]).map((c,i)=>({time: normalizeTime(c.time,i),open:Number(c.open??c.close??0),high:Number(c.high??c.close??0),low:Number(c.low??c.close??0),close:Number(c.close??0),ema20:Number(c.ema20??c.close??0),ema50:Number(c.ema50??c.close??0),ema200:Number(c.ema200??c.close??0)})).filter(x=>Number.isFinite(x.open)&&Number.isFinite(x.high)&&Number.isFinite(x.low)&&Number.isFinite(x.close)&&x.open>0&&x.high>0&&x.low>0&&x.close>0);
+
+  const rows=useMemo(()=>(data||[]).map((c,i)=>({time: normalizeTime(c.time,i),open:Number(c.open??c.close??0),high:Number(c.high??c.close??0),low:Number(c.low??c.close??0),close:Number(c.close??0),ema20:Number(c.ema20??c.close??0),ema50:Number(c.ema50??c.close??0),ema200:Number(c.ema200??c.close??0)})).filter(x=>Number.isFinite(x.open)&&Number.isFinite(x.high)&&Number.isFinite(x.low)&&Number.isFinite(x.close)&&x.open>0&&x.high>0&&x.low>0&&x.close>0),[data]);
+
+  const applyTheme=(chart:IChartApi)=>{
+    const isDark=document.documentElement.getAttribute('data-theme')!=='light';
+    chart.applyOptions({
+      layout:{background:{type:ColorType.Solid,color:cssVar('--surface')||'#fff'},textColor:cssVar('--text-muted')||'#6f7787'},
+      grid:{vertLines:{color:cssVar('--chart-grid')||'rgba(148,163,184,.14)'},horzLines:{color:cssVar('--chart-grid')||'rgba(148,163,184,.14)'}},
+      rightPriceScale:{borderColor:cssVar('--border-soft')||'#eadfcb'},
+      timeScale:{borderColor:cssVar('--border-soft')||'#eadfcb'},
+    });
+    emaRefs.current.ema200?.applyOptions({color:isDark?'#7b8494':'#c1b7a5'});
+  };
+
+  // ---- create once ----
   useEffect(()=>{
-    setChartError('');
-    if(!ref.current || !rows.length) return;
+    if(!ref.current) return;
     try{
-      const isDark=document.documentElement.getAttribute('data-theme')==='dark';
-      const width=Math.max(320, ref.current.clientWidth || ref.current.getBoundingClientRect().width || 720);
-      const height=Math.max(260, ref.current.clientHeight || 360);
-      const chart=createChart(ref.current,{width,height,layout:{background:{type:ColorType.Solid,color:cssVar('--surface')||'#fff'},textColor:cssVar('--text-muted')||'#6f7787',fontFamily:'Inter, -apple-system, SF Pro Display, Segoe UI, sans-serif',fontSize:11},grid:{vertLines:{color:cssVar('--chart-grid')||cssVar('--border-soft')||'rgba(148,163,184,.14)'},horzLines:{color:cssVar('--chart-grid')||cssVar('--border-soft')||'rgba(148,163,184,.14)'}},rightPriceScale:{borderColor:cssVar('--border-soft')||'#eadfcb'},timeScale:{borderColor:cssVar('--border-soft')||'#eadfcb',timeVisible:true,secondsVisible:false,fixLeftEdge:true,fixRightEdge:true},crosshair:{mode:1},handleScroll:true,handleScale:true});
+      const chart=createChart(ref.current,{autoSize:true,layout:{background:{type:ColorType.Solid,color:cssVar('--surface')||'#fff'},textColor:cssVar('--text-muted')||'#6f7787',fontFamily:'Inter, system-ui, -apple-system, "Segoe UI", sans-serif',fontSize:11},grid:{vertLines:{color:cssVar('--chart-grid')||'rgba(148,163,184,.14)'},horzLines:{color:cssVar('--chart-grid')||'rgba(148,163,184,.14)'}},rightPriceScale:{borderColor:cssVar('--border-soft')||'#eadfcb'},timeScale:{borderColor:cssVar('--border-soft')||'#eadfcb',timeVisible:true,secondsVisible:false,fixLeftEdge:true,fixRightEdge:true},crosshair:{mode:1},handleScroll:true,handleScale:true});
       chartRef.current=chart;
-      const candle=chart.addCandlestickSeries({upColor:cssVar('--green')||'#22c55e',downColor:cssVar('--red')||'#ef4444',borderUpColor:cssVar('--green')||'#22c55e',borderDownColor:cssVar('--red')||'#ef4444',wickUpColor:cssVar('--green')||'#22c55e',wickDownColor:cssVar('--red')||'#ef4444',priceLineVisible:false});
-      candle.setData(rows.map(({time,open,high,low,close})=>({time,open,high,low,close})) as any);
-      const makeLine=(key:'ema20'|'ema50'|'ema200',color:string)=>{const line=chart.addLineSeries({color,lineWidth:1,priceLineVisible:false,lastValueVisible:false});line.setData(rows.map(r=>({time:r.time,value:Number((r as any)[key]||r.close)})).filter(x=>Number.isFinite(x.value)&&x.value>0) as any);};
-      makeLine('ema20',cssVar('--green')||'#22c55e'); makeLine('ema50',cssVar('--blue')||'#3b82f6'); makeLine('ema200',isDark?'#7b8494':'#c1b7a5');
-      levels.forEach(l=>{ if(Number.isFinite(l.price) && l.price>0) candle.createPriceLine({price:l.price,color:l.color||cssVar('--gold')||'#c9972f',lineWidth:1,lineStyle:(l.style || 2) as any,axisLabelVisible:true,title:l.label});});
-      chart.timeScale().fitContent();
-      requestAnimationFrame(()=>{ if(ref.current) chart.applyOptions({width:Math.max(320,ref.current.clientWidth),height:Math.max(260,ref.current.clientHeight)}); chart.timeScale().fitContent(); });
-      const ro=new ResizeObserver(()=>{if(ref.current){chart.applyOptions({width:Math.max(320,ref.current.clientWidth),height:Math.max(260,ref.current.clientHeight)});chart.timeScale().fitContent();}}); ro.observe(ref.current);
-      return()=>{ro.disconnect(); chart.remove(); chartRef.current=null};
+      candleRef.current=chart.addCandlestickSeries({upColor:cssVar('--green')||'#22c55e',downColor:cssVar('--red')||'#ef4444',borderUpColor:cssVar('--green')||'#22c55e',borderDownColor:cssVar('--red')||'#ef4444',wickUpColor:cssVar('--green')||'#22c55e',wickDownColor:cssVar('--red')||'#ef4444',priceLineVisible:false});
+      emaRefs.current.ema20=chart.addLineSeries({color:cssVar('--green')||'#22c55e',lineWidth:1,priceLineVisible:false,lastValueVisible:false});
+      emaRefs.current.ema50=chart.addLineSeries({color:cssVar('--blue')||'#3b82f6',lineWidth:1,priceLineVisible:false,lastValueVisible:false});
+      emaRefs.current.ema200=chart.addLineSeries({color:'#7b8494',lineWidth:1,priceLineVisible:false,lastValueVisible:false});
+      applyTheme(chart);
+      // autoSize installs the library's own resize handling; a second ResizeObserver calling
+      // applyOptions({width}) on top of it just doubles the reflow work on every resize.
+      const mo=new MutationObserver(()=>applyTheme(chart));
+      mo.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+      return()=>{mo.disconnect(); chart.remove(); chartRef.current=null; candleRef.current=null; emaRefs.current={}; priceLinesRef.current=[]};
     }catch(e:any){console.error('[GodMode chart]', e); setChartError(e?.message||'Chart rendering failed');}
-  },[JSON.stringify(rows.slice(-120)),JSON.stringify(levels),themeVersion]);
+  },[]);
+
+  // ---- feed data in place ----
+  useEffect(()=>{
+    const candle=candleRef.current;
+    if(!candle||!rows.length) return;
+    try{
+      setChartError('');
+      candle.setData(rows.map(({time,open,high,low,close})=>({time,open,high,low,close})) as any);
+      for(const key of ['ema20','ema50','ema200'] as const){
+        emaRefs.current[key]?.setData(rows.map(r=>({time:r.time,value:Number((r as any)[key]||r.close)})).filter(x=>Number.isFinite(x.value)&&x.value>0) as any);
+      }
+    }catch(e:any){console.error('[GodMode chart data]', e); setChartError(e?.message||'Chart rendering failed');}
+  },[rows]);
+
+  // ---- price lines: recreated only when the levels themselves change ----
+  const levelKey=useMemo(()=>levels.map(l=>`${l.label}:${l.price}:${l.color||''}`).join('|'),[levels]);
+  useEffect(()=>{
+    const candle=candleRef.current;
+    if(!candle) return;
+    try{
+      priceLinesRef.current.forEach(line=>{try{candle.removePriceLine(line)}catch{ /* already gone */ }});
+      priceLinesRef.current=levels
+        .filter(l=>Number.isFinite(l.price)&&l.price>0)
+        .map(l=>candle.createPriceLine({price:l.price,color:l.color||cssVar('--gold')||'#c9972f',lineWidth:1,lineStyle:(l.style||2) as any,axisLabelVisible:true,title:l.label}));
+    }catch{ /* price lines are decoration; never let them break the chart */ }
+  },[levelKey]);
   if(!rows.length) return <div className="chart-shell empty-chart-shell"><EmptyChart message="No live XAUUSD candles received"/><CandlestickPreview height={180}/></div>;
   if(chartError) return <div className="chart-shell fallback-chart"><div className="chart-watermark">XAUUSD</div><CandlestickPreview height={260}/><p className="muted tiny">Live chart fallback active: {chartError}</p></div>;
   return <div className="chart-shell"><div className="chart-watermark">XAUUSD</div><div className="chart-overlay-panel"><Tag color="gold">EMA 20 / 50 / 200</Tag><Tag color="green">Entry</Tag><Tag color="red">SL</Tag><Tag color="blue">TP zones</Tag></div><div ref={ref} className="chart-tvlw"/></div>

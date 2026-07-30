@@ -10,6 +10,19 @@
   --r-sm:8px;--r-md:11px;--r-lg:14px;--r-xl:18px;--r-pill:999px;
   --ease:cubic-bezier(.22,1,.36,1);--fast:160ms var(--ease);--med:240ms var(--ease);--slow:420ms var(--ease);
   --radius:14px;--radius-sm:11px;--gap:16px;
+  /* ---- TYPE SYSTEM ----------------------------------------------------------------
+     Three roles, declared once and referenced everywhere, so a later block can never
+     partially redefine the stack:
+       --font-display  Archivo — page titles, metric values, the BUY/SELL verdict
+       --font-ui       Inter   — everything else
+       --font-mono     Geist Mono — prices, tickets, R multiples, JSON
+
+     Numeric text in a trading terminal must be tabular. Without it every digit change
+     re-measures the glyph run and the number visibly jitters at the 1.8s poll rate; the
+     --font-mono role plus font-variant-numeric below pins the columns. */
+  --font-display:"Archivo","Archivo Fallback",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-ui:"Inter","Inter Fallback",system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"Geist Mono","JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   /* brand gold (theme-invariant) */
   --gold:#d8a33a;--gold-2:#e8c770;--gold-3:#b8862a;--gold-soft:rgba(216,163,58,.14);--gold-border:rgba(216,163,58,.40);
   --gold-grad:linear-gradient(135deg,#e8c770 0%,#d4a436 55%,#b8862a 100%);
@@ -28,6 +41,14 @@
   --green-soft:rgba(34,197,94,.14);--red-soft:rgba(239,68,68,.14);--amber-soft:rgba(245,158,11,.14);
   --blue-soft:rgba(59,130,246,.14);--purple-soft:rgba(139,92,246,.16);
   --shadow-soft:0 10px 26px rgba(0,0,0,.30);--shadow-card:0 20px 52px rgba(0,0,0,.42);
+  /* Aliases for --muted / --panel. The V15.4.3 Protected Burst block at the bottom of this file
+     references both, but neither was ever defined in either theme: this file's tokens are named
+     --text-muted and --surface. An unresolvable var() makes the whole declaration invalid, so
+     `.burst-live-pulse small` fell back to inherited body colour and, worse,
+     `color-mix(in srgb, var(--gold) 8%, var(--panel))` dropped the entire background off
+     `.burst-blocker-line`. Defining the aliases in both themes fixes those rules without
+     touching the block that uses them. */
+  --muted:var(--text-muted);--panel:var(--surface);
 }
 
 /* ---------------- LIGHT ---------------- */
@@ -41,16 +62,41 @@
   --blue-soft:rgba(59,130,246,.12);--purple-soft:rgba(139,92,246,.12);
   --gold-dark:#a87519;
   --shadow-soft:0 8px 22px rgba(32,23,8,.06);--shadow-card:0 18px 48px rgba(32,23,8,.10);
+  --muted:var(--text-muted);--panel:var(--surface);
 }
 
 *{box-sizing:border-box}
 html,body,#root{min-height:100%;margin:0}
-body{background:var(--bg);font-family:"Inter",system-ui,-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;color:var(--text);font-size:13px;font-weight:400;line-height:1.5;letter-spacing:-.006em;overflow-x:hidden}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--bg);font-family:var(--font-ui);color:var(--text);
+  font-size:13px;font-weight:400;line-height:1.5;letter-spacing:-.006em;overflow-x:hidden;
+  /* Inter and Archivo both ship contextual alternates and a disambiguated 1/l/I set; without
+     these the terminal renders the default forms, which read poorly at 10-11px in the label and
+     chip sizes this UI leans on. */
+  font-synthesis-weight:none;
+  text-rendering:optimizeLegibility;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  font-feature-settings:"cv05" 1,"ss03" 1;
+}
+/* Display type is set tight and optically aligned; body copy is not. Declaring the tracking with
+   the role rather than per-rule keeps headings consistent as sizes change across breakpoints. */
+h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.021em;line-height:1.12;text-wrap:balance}
+p{text-wrap:pretty}
 button,input,select,textarea{font:inherit}
 button{cursor:pointer}
 button:disabled{opacity:.55;cursor:not-allowed}
 a{color:inherit}
 ::selection{background:var(--gold-soft);color:var(--text)}
+/* Nothing in this UI had a visible focus indicator: the reset removed the UA outline and never
+   replaced it, so keyboard operation of a live trading terminal was untrackable. :focus-visible
+   shows the ring for keyboard/AT navigation without putting a ring on every mouse click. */
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:var(--r-sm)}
+.nav-item:focus-visible,.gold-button:focus-visible,.outline-button:focus-visible,.ghost-button:focus-visible{outline-offset:3px}
+/* Skip-to-content affordance for keyboard users landing on a 10-item sidebar. */
+.skip-link{position:absolute;left:-9999px;top:0;z-index:9999;background:var(--surface);color:var(--text);border:1px solid var(--gold-border);border-radius:var(--r-md);padding:10px 14px;font-weight:700}
+.skip-link:focus{left:12px;top:12px}
 
 /* ---------------- SHELL ---------------- */
 .app-frame{min-height:100vh;background:var(--bg)}
@@ -58,7 +104,7 @@ a{color:inherit}
 .sidebar{height:100vh;position:sticky;top:0;width:var(--sidebar-w);background:linear-gradient(180deg,var(--sidebar),color-mix(in srgb,var(--sidebar) 94%,#000));border-right:1px solid var(--border);padding:18px 14px 14px;display:flex;flex-direction:column;z-index:50}
 .logo{display:flex;align-items:center;gap:11px;padding:0 10px 22px}
 .logo-mark,.logo-crown,.logo img{width:34px;height:34px;display:block;filter:drop-shadow(0 0 14px rgba(216,163,58,.30))}
-.logo-title{font-family:"Archivo",system-ui,sans-serif;font-size:22px;font-weight:800;letter-spacing:.005em;line-height:.9;color:var(--gold-2)}
+.logo-title{font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:.005em;line-height:.9;color:var(--gold-2)}
 .logo-sub{font-size:10px;font-weight:800;letter-spacing:.16em;color:var(--gold);margin-top:3px;text-transform:uppercase}
 .nav{display:grid;gap:6px}
 .nav-item{height:42px;border:1px solid transparent;background:transparent;color:var(--text-muted);border-radius:var(--r-md);display:flex;align-items:center;gap:12px;padding:0 12px;font-size:13px;font-weight:600;position:relative;text-align:left;transition:background var(--fast),color var(--fast),transform var(--fast),border-color var(--fast)}
@@ -69,7 +115,7 @@ a{color:inherit}
 .sidebar-spacer{flex:1}
 .elite-card{position:relative;overflow:hidden;border:1px solid var(--gold-border);border-radius:var(--r-lg);background:radial-gradient(circle at 50% 0%,rgba(232,199,112,.16),transparent 46%),linear-gradient(180deg,rgba(216,163,58,.08),rgba(216,163,58,.02));padding:20px 14px;text-align:center;color:var(--gold-2);box-shadow:var(--shadow-soft)}
 .elite-card:after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(232,199,112,.16) 50%,transparent 70%);background-size:220% 100%;animation:shimmer 6s linear infinite;pointer-events:none}
-.elite-card h3{font-family:"Archivo",system-ui,sans-serif;font-size:16px;margin:8px 0 2px;letter-spacing:.04em}
+.elite-card h3{font-family:var(--font-display);font-size:16px;margin:8px 0 2px;letter-spacing:.04em}
 .elite-card p{margin:0 0 14px;color:var(--text-muted)}
 .elite-card img{width:42px;height:42px;position:relative;z-index:1}
 .sidebar-footer{font-size:11px;color:var(--text-faint);padding:16px 8px 0;line-height:1.6}
@@ -98,7 +144,7 @@ a{color:inherit}
 
 .page{padding:22px var(--page-pad) 6px;min-width:0;animation:rise var(--slow) var(--ease) both}
 .page-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
-.page-title{font-family:"Archivo",system-ui,sans-serif;font-size:26px;line-height:1.05;margin:0;color:var(--text);font-weight:800;letter-spacing:-.02em}
+.page-title{font-family:var(--font-display);font-size:26px;line-height:1.05;margin:0;color:var(--text);font-weight:800;letter-spacing:-.02em}
 .page-subtitle{margin:6px 0 0;color:var(--text-muted);font-size:13px;font-weight:500}
 .page-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:flex-end}
 
@@ -114,7 +160,7 @@ code{overflow-wrap:anywhere;word-break:break-word}
 .card-title{font-size:13px;font-weight:800;margin:0;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;color:var(--text)}
 .card-title svg{color:var(--gold)}
 .label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:800}
-.value{font-family:"Archivo",system-ui,sans-serif;font-size:23px;font-weight:800;letter-spacing:-.02em;color:var(--text)}
+.value{font-family:var(--font-display);font-size:23px;font-weight:800;letter-spacing:-.02em;color:var(--text)}
 .tiny{font-size:11px}.muted{color:var(--text-muted)}
 .positive{color:var(--green)!important}.negative{color:var(--red)!important}.gold{color:var(--gold-dark)!important}
 .full{width:100%}.space-between{justify-content:space-between}
@@ -217,7 +263,7 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .table{width:100%;border-collapse:collapse;font-size:12px;min-width:760px;background:var(--surface)}
 .table th{text-align:left;color:var(--text-faint);font-size:10.5px;font-weight:800;padding:10px 12px;background:var(--surface-soft);border-bottom:1px solid var(--border);white-space:nowrap}
 .table td{padding:11px 12px;border-bottom:1px solid var(--border-soft);color:var(--text-muted);vertical-align:middle;white-space:nowrap}
-.table td .price,.num{font-family:"Geist Mono","JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.table td .price,.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
 .table tr:last-child td{border-bottom:0}
 /* Strategy Scan: let the "Why blocked" reason wrap instead of truncating off the card edge */
 .strategy-scan-card .table td{white-space:normal;vertical-align:top}
@@ -233,14 +279,14 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .confidence-ring svg{transform:rotate(-90deg)}
 .confidence-ring circle:last-child{transition:stroke-dashoffset var(--slow)}
 .confidence-ring .inside{position:absolute;text-align:center}
-.confidence-ring .pct,.pct{font-family:"Archivo",system-ui,sans-serif;font-size:26px;font-weight:800;color:var(--green);line-height:1}
+.confidence-ring .pct,.pct{font-family:var(--font-display);font-size:26px;font-weight:800;color:var(--green);line-height:1}
 .confidence-ring .lbl,.lbl{font-size:10px;color:var(--text-muted);font-weight:700;margin-top:4px}
 
 /* ---------------- CHART ---------------- */
 .chart-shell{position:relative;width:100%;height:360px;min-height:320px;border-radius:var(--r-xl);border:1px solid var(--border);background:linear-gradient(var(--chart-grid) 1px,transparent 1px),linear-gradient(90deg,var(--chart-grid) 1px,transparent 1px),var(--surface);background-size:42px 42px;overflow:hidden}
 .chart-tvlw{height:100%;width:100%;min-height:320px;position:relative;z-index:2}
 .chart-card{padding:14px}
-.chart-watermark{position:absolute;left:16px;top:14px;font-family:"Archivo",system-ui,sans-serif;font-size:38px;font-weight:900;color:var(--gold);opacity:.06;letter-spacing:-.04em;z-index:1}
+.chart-watermark{position:absolute;left:16px;top:14px;font-family:var(--font-display);font-size:38px;font-weight:900;color:var(--gold);opacity:.06;letter-spacing:-.04em;z-index:1}
 .chart-overlay-panel{position:absolute;left:14px;top:46px;display:flex;gap:6px;z-index:3;flex-wrap:wrap}
 .empty-state{min-height:170px;display:grid;place-content:center;gap:7px;text-align:center;padding:20px;color:var(--text-muted);background:var(--surface-soft);border-radius:var(--r-lg);border:1px solid var(--border-soft)}
 .empty-state.compact{min-height:120px}
@@ -261,7 +307,7 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 
 .signal-card-body{display:flex;align-items:center;justify-content:center;gap:18px}
 .signal-main{display:grid;gap:10px;justify-items:start}
-.trade-side{font-family:"Archivo",system-ui,sans-serif;font-size:38px;font-weight:900;letter-spacing:-.03em;color:var(--gold-dark)}
+.trade-side{font-family:var(--font-display);font-size:38px;font-weight:900;letter-spacing:-.03em;color:var(--gold-dark)}
 .trade-side.buy{color:var(--green)}.trade-side.sell{color:var(--red)}
 
 /* ---------------- SECTION-SPECIFIC ---------------- */
@@ -301,7 +347,7 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .journal-symbol,.journal-detail-title{display:flex;align-items:center;gap:8px}
 .journal-symbol img{width:18px;height:18px}
 .journal-detail-title img{width:24px;height:24px}
-.journal-detail-title{font-family:"Archivo",system-ui,sans-serif}
+.journal-detail-title{font-family:var(--font-display)}
 .journal-time{text-align:right;display:grid;gap:8px;justify-items:end}
 .journal-thumb{width:100%;height:72px;border-radius:10px;overflow:hidden;background:var(--surface-muted)}
 
@@ -343,7 +389,7 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 .modal-card{width:min(460px,100%);background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:22px;box-shadow:var(--shadow-card)}
 .login-page{min-height:calc(100vh - var(--topbar-h));display:grid;place-items:center}
 .report-action{margin-top:14px;border-top:1px solid var(--border-soft);padding-top:14px;display:grid;gap:10px}
-.code-box{white-space:pre-wrap;overflow:auto;max-height:300px;font-family:"Geist Mono",ui-monospace,monospace;font-size:10.5px;line-height:1.45;border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--surface-muted);color:var(--text-muted)}
+.code-box{white-space:pre-wrap;overflow:auto;max-height:300px;font-family:var(--font-mono);font-size:10.5px;line-height:1.45;border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--surface-muted);color:var(--text-muted)}
 .notice-box{position:relative}
 .notice-menu{position:absolute;right:0;top:48px;width:330px;max-width:calc(100vw - 28px);max-height:min(70vh,460px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--shadow-card);padding:12px;z-index:200}
 .notice-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
@@ -382,7 +428,15 @@ textarea.input{height:auto;min-height:74px;padding:10px;resize:vertical}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes shimmer{0%{background-position:-160% 0}100%{background-position:160% 0}}
 
-@media(prefers-reduced-motion:reduce){*,.card,.elite-card:after,.timeline-step,.action-toast,.page{animation:none!important;transition:none!important}}
+/* Reduced motion. `*` with !important already outranks anything declared later, including the
+   V15.4.3 burst animations and the compositor-only replacements at the end of this file, but
+   ::before/::after are NOT matched by `*` — the halo, shimmer and burst-glow all live on
+   pseudo-elements, so they have to be listed explicitly or they keep animating for a user who
+   asked the operating system for stillness. */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  .live-dot:after{opacity:.4;transform:none}
+}
 
 /* ---------------- RESPONSIVE ---------------- */
 /* Laptop widths (≤1720, incl. zoomed-out): CONDENSE the top bar into one clean row instead of
@@ -610,7 +664,7 @@ h2.journal-detail-title { font-weight: 800 }
   margin-top: 4px;
 }
 .spread-chip span { color: var(--text-muted); font-weight: 500 }
-.spread-chip strong { font-weight: 700; font-family: "Geist Mono",ui-monospace,monospace }
+.spread-chip strong { font-weight: 700; font-family: var(--font-mono) }
 
 /* ── Responsive Donut / Confidence Ring ──────────────────── */
 .confidence-ring { max-width: 100%; overflow: visible }
@@ -642,7 +696,7 @@ h2.journal-detail-title { font-weight: 800 }
 /* ── Confidence ring centering (works at any size) ───────── */
 .confidence-ring { position: relative; display: inline-grid; place-items: center }
 .confidence-ring .inside { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center }
-.confidence-ring .pct { font-family: "Archivo",system-ui,sans-serif; font-weight: 800; color: var(--green) }
+.confidence-ring .pct { font-family: var(--font-display); font-weight: 800; color: var(--green) }
 .confidence-ring .lbl { color: var(--text-muted); font-weight: 600; margin-top: 2px }
 
 /* ── Featured signal card ring — keep contained ──────────── */
@@ -671,7 +725,7 @@ h2.journal-detail-title { font-weight: 800 }
 .code-modal-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border-soft)}
 .code-modal-title{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;color:var(--text)}
 .code-modal-actions{display:flex;gap:6px}
-.code-modal-body{margin:0;padding:16px;overflow:auto;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;line-height:1.6;color:var(--text);background:var(--surface-muted);border-bottom-left-radius:var(--radius);border-bottom-right-radius:var(--radius)}
+.code-modal-body{margin:0;padding:16px;overflow:auto;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--text);background:var(--surface-muted);border-bottom-left-radius:var(--radius);border-bottom-right-radius:var(--radius)}
 
 /* ===== Missed Moves scroll + pagination (V13.30) ===== */
 .missed-scroll{margin-top:8px;max-height:340px;overflow-y:auto;padding-right:6px}
@@ -702,10 +756,10 @@ h2.journal-detail-title { font-weight: 800 }
 .early-impulse-diagnostics{min-width:0;border:1px solid var(--border);border-radius:var(--r-lg);background:linear-gradient(155deg,var(--surface-soft),var(--surface));padding:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
 .impulse-live-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--border-soft)}
 .impulse-live-head>div:first-child{display:grid;gap:5px;min-width:0}
-.impulse-live-head strong{font-family:"Archivo",system-ui,sans-serif;font-size:20px;letter-spacing:-.025em;overflow-wrap:anywhere}
+.impulse-live-head strong{font-family:var(--font-display);font-size:20px;letter-spacing:-.025em;overflow-wrap:anywhere}
 .eyebrow{display:flex;align-items:center;gap:5px;color:var(--text-faint);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
 .impulse-probability{min-width:70px;text-align:right}
-.impulse-probability span{display:block;font-family:"Archivo",system-ui,sans-serif;font-size:28px;line-height:1;font-weight:900;color:var(--gold-dark)}
+.impulse-probability span{display:block;font-family:var(--font-display);font-size:28px;line-height:1;font-weight:900;color:var(--gold-dark)}
 .impulse-probability small{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);font-weight:800}
 .impulse-offline{margin-top:10px;border:1px solid rgba(220,38,38,.25);background:rgba(220,38,38,.07);border-radius:var(--r-md);padding:8px 10px;color:var(--red);font-size:11px;font-weight:700}
 .impulse-stage-track{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:12px 0}
@@ -756,8 +810,42 @@ h2.journal-detail-title { font-weight: 800 }
 @keyframes burstOrbit{to{transform:rotate(360deg)}}@keyframes burstRadarSweep{to{transform:rotate(360deg)}}@keyframes burstCardGlow{to{box-shadow:0 0 30px color-mix(in srgb,var(--gold) 22%,transparent)}}
 @media(max-width:720px){.burst-live-grid{grid-template-columns:1fr}.burst-live-pulse{margin:auto}.burst-gate-trace{grid-template-columns:1fr}}
 
-/* V15.4.3 uniform typography and responsive intelligence cards */
-:root{--gm-ui-font:Inter,"Segoe UI",Arial,sans-serif}
-html,body,#root,.app-shell,.page,.card,button,input,select,textarea,table,.metric-card,.ai-top-strip{font-family:var(--gm-ui-font)!important}
-.ai-top-strip strong,.ai-top-strip span,.ai-top-strip p{font-family:var(--gm-ui-font)!important;letter-spacing:normal}
+/* V15.4.3 responsive intelligence cards.
+   The uniform-typography rule that used to sit here declared
+     html,body,#root,.app-shell,.page,.card,button,…{font-family:var(--gm-ui-font)!important}
+   which is the same mistake the V15.0.8 note above documents removing: !important collapses the
+   cascade to source order, so a single last-in-file rule outranks every considered font choice in
+   the design system and pins a different fallback chain (Arial instead of system-ui) on almost
+   every element. It is also unnecessary — inheritance from `body` already gives uniform UI type.
+   The three font roles are now tokens declared once in :root, and the elements that genuinely need
+   display or monospace type opt in below. */
+.logo-title,.page-title,.value,.trade-side,.elite-card h3,.journal-detail-title,.impulse-live-head strong,.impulse-probability span,.confidence-ring .pct,.pct{font-family:var(--font-display)}
+/* Every number a trader reads off this screen: tabular figures so digits keep their column and
+   prices stop shifting sideways as they tick. */
+.num,.price,.table td .price,.code-box,.spread-chip strong,.impulse-diagnostic-grid strong,.code-modal-body{font-family:var(--font-mono)}
+.value,.pct,.num,.price,.metric-card .value,.status-chip strong,.impulse-meter strong,.donut-center,.burst-live-pulse strong,.rc-cell strong,.detail-row strong,.trade-line strong,.checklist-item strong,.table td{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1,"cv01" 1}
 @media(min-width:1100px){.dashboard-intelligence-pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}.dashboard-intelligence-pair>.card{height:100%}}
+
+/* ---------------- MOTION: COMPOSITOR-ONLY -----------------------------------------------
+   Four animations ran forever on this page and all of them animated properties that force the
+   browser to repaint every frame:
+     .live-dot        box-shadow  (up to five instances in the top bar, all animating)
+     .elite-card:after background-position
+     .burst-firing    box-shadow
+   box-shadow and background-position cannot be handled by the compositor — each frame repaints
+   the element and its stacking context, forever, on a page that is already busy parsing polls.
+   The equivalents below animate only transform and opacity, which the compositor handles off the
+   main thread, so the same visual result costs no layout and no paint. */
+/* .live-dot.demo re-declares `animation` at higher specificity further up the file, so it needs an
+   equally specific reset here or the demo dot keeps repainting its box-shadow. */
+.live-dot,.live-dot.demo,.live-dot.red,.live-dot.gold{position:relative;animation:none}
+.live-dot:after{content:"";position:absolute;inset:0;border-radius:50%;background:inherit;transform-origin:center;animation:dot-halo 2s var(--ease) infinite;will-change:transform,opacity}
+@keyframes dot-halo{0%{transform:scale(1);opacity:.55}70%{transform:scale(2.6);opacity:0}100%{transform:scale(2.6);opacity:0}}
+.elite-card:after{background:linear-gradient(110deg,transparent 34%,rgba(232,199,112,.18) 50%,transparent 66%);background-size:100% 100%;width:180%;left:-40%;right:auto;animation:shimmer-x 6s linear infinite;will-change:transform}
+@keyframes shimmer-x{from{transform:translate3d(-40%,0,0)}to{transform:translate3d(40%,0,0)}}
+.burst-firing,.burst-fired{position:relative;animation:none}
+.burst-firing:after,.burst-fired:after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:0 0 30px color-mix(in srgb,var(--gold) 22%,transparent);opacity:0;animation:burst-glow-fade 1s ease-in-out infinite alternate;will-change:opacity}
+@keyframes burst-glow-fade{to{opacity:1}}
+.protected-burst-live-card:before,.burst-orbit{will-change:transform}
+/* Isolate the perpetually-animating cards so their frames cannot invalidate the rest of the page. */
+.protected-burst-live-card,.elite-card{contain:paint}

@@ -28,10 +28,27 @@ def test_no_value_matching_v1415_migration_exists():
     assert 'v14.1.5-structural-defaults-migration' not in src
     assert 'float(_cur or 0) == float(_legacy)' not in src
 
+# Directories that are not part of the shipped release. The virtual environment matters most:
+# every start script creates it *inside* the project root, so without this exclusion the scan walks
+# site-packages and reports ~780 third-party offenders. The assertion could only ever pass on a
+# machine where the bot had not been started yet.
+_NON_RELEASE_DIRS = {'__pycache__', '.pytest_cache', 'node_modules', '.git', 'venv', 'env'}
+
+
+def _is_release_source(path: Path) -> bool:
+    for part in path.parts:
+        if part in _NON_RELEASE_DIRS:
+            return False
+        # Matches .venv, .venv-test, .venv311 and anything else the operator names their env.
+        if part.startswith('.venv'):
+            return False
+    return True
+
+
 def test_no_pass_only_exception_handlers_in_python_release():
     offenders=[]
     for path in ROOT.rglob('*.py'):
-        if any(x in path.parts for x in ('__pycache__','.pytest_cache')): continue
+        if not _is_release_source(path): continue
         tree=ast.parse(path.read_text(encoding='utf-8'))
         for node in ast.walk(tree):
             if isinstance(node, ast.ExceptHandler) and len(node.body)==1 and isinstance(node.body[0], ast.Pass):

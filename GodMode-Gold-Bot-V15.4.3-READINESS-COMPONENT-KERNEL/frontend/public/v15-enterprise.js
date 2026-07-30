@@ -1,10 +1,16 @@
 (() => {
   'use strict';
-  const BUILD = 'V15.1.4-HYBRID-HARDENED';
+  const BUILD = 'V15.4.3-READINESS-COMPONENT-KERNEL';
   const HOST_ID = 'godmode-v15-enterprise-panel';
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const pct = (value) => Number.isFinite(Number(value)) ? `${Math.round(Number(value) * 100)}%` : '—';
-  const isAIPage = () => /(^|\/)ai(?:-|\/|$)/i.test(location.pathname) || /ai agent/i.test(document.title);
+  // This panel never appeared. The check tested location.pathname, but the dashboard is hash-routed
+  // (App.tsx navigates by setting window.location.hash = '/ai'), so pathname is always "/" and the
+  // regex could not match; the document title is the constant "GodMode Gold Trading Bot", so the
+  // fallback could not match either. isAIPage() therefore returned false on every route and the
+  // V15 Operational Intelligence section was dead code in every shipped build. Read the hash.
+  const routeId = () => (location.hash || '').replace(/^#\/?/, '').split(/[?/]/)[0].toLowerCase();
+  const isAIPage = () => routeId() === 'ai';
 
   async function getJSON(url) {
     const response = await fetch(url, {credentials: 'same-origin', headers: {'Accept': 'application/json'}});
@@ -99,6 +105,10 @@
     history[method] = function (...args) { const result = original.apply(this, args); notifyRoute(); return result; };
   }
   window.addEventListener('popstate', notifyRoute);
+  // Hash navigation fires hashchange, not popstate or pushState. Without this listener the panel
+  // would still never mount or unmount as the operator moved between pages, even after the
+  // isAIPage fix above.
+  window.addEventListener('hashchange', notifyRoute);
   window.addEventListener('godmode:routechange', () => setTimeout(() => mount(), 0));
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => mount(), {once: true}); else mount();
 })();

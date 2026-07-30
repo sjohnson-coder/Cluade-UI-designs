@@ -4,6 +4,7 @@ import { Card, Checklist, ConfidenceRing, DataTable, MetricCard, PageHeader, Sec
 import { MiniCandleBlock } from '../components/Charts';
 import { api } from '../lib/api';
 import crownUrl from '../assets/godmode-crown.svg';
+import { usePoll } from '../lib/usePoll';
 const money=(v:any,c='')=>`${Number(v||0)>=0?'+':''}${c?c+' ':''}${Number(v||0).toLocaleString(undefined,{maximumFractionDigits:2})}`;
 export default function Journal(){
   const [entries,setEntries]=useState<any[]>([]),[selected,setSelected]=useState<any|null>(null),[query,setQuery]=useState(''),[outcome,setOutcome]=useState('ALL'),[strategy,setStrategy]=useState('ALL'),[symbol,setSymbol]=useState('ALL');
@@ -12,7 +13,7 @@ export default function Journal(){
   const blank={date:new Date().toISOString().slice(0,10),symbol:'XAUUSD',side:'BUY',outcome:'NOTE',pnl:'',strategy:'',session:'',lessons:'',improvement:'',notes:''};
   const [form,setForm]=useState<any>(blank);
   const load=async()=>{const d=await api.journal(dateFrom||undefined,dateTo||undefined); const arr=Array.isArray(d)?d:[]; setEntries(arr); setSelected((x:any)=>x||arr[0]||null)};
-  useEffect(()=>{load(); const id=setInterval(load,10000); return()=>clearInterval(id)},[dateFrom,dateTo]);
+  usePoll(load,10000,[dateFrom,dateTo]);
   const saveEntry=async()=>{setSaving(true);const r:any=await api.journalAddEntry({...form,pnl:Number(form.pnl||0)});setSaving(false);if(r?.ok){setShowForm(false);setForm(blank);setToast('Journal entry saved.');await load();setTimeout(()=>setToast(''),2500)}else setToast(r?.message||'Could not save entry.')};
   const filtered=useMemo(()=>entries.filter(e=>(outcome==='ALL'||e.outcome===outcome)&&(strategy==='ALL'||String(e.strategy||'').includes(strategy))&&(symbol==='ALL'||String(e.symbol||'').includes(symbol))&&(query===''||JSON.stringify(e).toLowerCase().includes(query.toLowerCase()))),[entries,outcome,strategy,symbol,query]);
   const wins=entries.filter(e=>e.outcome==='WIN').length,total=entries.length,winRate=total?Math.round((wins/total)*1000)/10:0,net=entries.reduce((a,e)=>a+Number(e.pnl||e.pnlUsd||0),0);

@@ -5,6 +5,7 @@ import { useThemeStore } from '../store/themeStore';
 import { useSoundStore } from '../store/soundStore';
 import { useGodModeSounds } from './SoundManager';
 import { api } from '../lib/api';
+import { usePoll } from '../lib/usePoll';
 import crownUrl from '../assets/godmode-crown.svg';
 
 const nav = [
@@ -27,7 +28,12 @@ export function AppShell({ current, onNavigate, children }: { current:string; on
   const loadNotifications=async()=>setNotice(await api.notifications());
   useEffect(()=>{const onStorage=()=>setUser(readUser());window.addEventListener('storage',onStorage);return()=>window.removeEventListener('storage',onStorage)},[]);
   const [spread, setSpread] = useState<number|null>(null);
-  useEffect(() => {let active=true; const load=async()=>{const [fresh,notes,mkt]=await Promise.all([api.status(), api.notifications(), api.marketSnapshot()]); if(active){setStatus(fresh);setNotice(notes);setSpread(typeof mkt?.spread==='number'?mkt.spread:null)}}; load(); const id=window.setInterval(()=>{if(!document.hidden) void load()},8000); return()=>{active=false; window.clearInterval(id)}}, []);
+  usePoll(async () => {
+    const [fresh, notes, mkt] = await Promise.all([api.status(), api.notifications(), api.marketSnapshot()]);
+    setStatus(fresh);
+    setNotice(notes);
+    setSpread(typeof mkt?.spread === 'number' ? mkt.spread : null);
+  }, 8000);
   useEffect(()=>{const onNotify=(ev:any)=>{play(ev?.detail?.sound||'success');loadNotifications()};window.addEventListener('godmode:notify',onNotify);return()=>window.removeEventListener('godmode:notify',onNotify)},[play]);
 
   const mt5 = status?.mt5 || {};

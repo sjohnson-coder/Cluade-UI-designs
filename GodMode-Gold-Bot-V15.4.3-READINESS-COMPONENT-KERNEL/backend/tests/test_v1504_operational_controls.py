@@ -254,7 +254,11 @@ def test_reference_typography_is_applied_without_font_binaries() -> None:
     assert "family=Archivo" in html
     assert "Playfair+Display" not in html
     assert "Fraunces" not in html
-    assert 'font-family:"Archivo"' in css or 'font-family: "Archivo"' in css
+    # Archivo is now referenced through the --font-display token rather than repeated as a literal
+    # stack in a dozen rules, so assert the token is defined with Archivo and that display surfaces
+    # consume it. That is the property this test cares about; the spelling is incidental.
+    assert '--font-display:"Archivo"' in css
+    assert 'font-family:var(--font-display)' in css
     assert not list((root / "frontend").rglob("*.woff*"))
 
 

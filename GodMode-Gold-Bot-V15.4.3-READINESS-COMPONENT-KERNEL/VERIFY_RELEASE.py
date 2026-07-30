@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path, PurePosixPath
-import hashlib, zipfile, sys, tempfile, shutil, json, stat, ast
+import hashlib, zipfile, sys, tempfile, shutil, json, stat, ast, re
 
 ROOT = Path(__file__).resolve().parent
 
@@ -26,7 +26,14 @@ def _read_build_identity() -> tuple[str, str]:
     return build, version
 
 EXPECTED_BUILD, EXPECTED_VERSION = _read_build_identity()
-EXPECTED_CSS = 'aeafedccd428501f1d36853743327bf6c4eced74eb95b2b9c128dc4fb831a69c'
+# Hash of the single compiled theme stylesheet. This constant, SHA256SUMS.txt and
+# RELEASE_MANIFEST.json all describe build OUTPUT, so any legitimate `npm run build` invalidates
+# all three at once — and the product tells the operator to run exactly that in REBUILD_UI_FIRST.txt,
+# start_frontend.bat and the stale-bundle banner app.py injects into index.html. Regenerate them
+# together with REGENERATE_RELEASE_CHECKSUMS.py after every intentional frontend rebuild; a
+# mismatch you did not expect still means the tree was modified after packaging, which is the
+# tampering signal this file exists to raise.
+EXPECTED_CSS = 'cee9dda12716bd7ef707959de10abf8ec771e087ae87977eda52955316032daf'
 FORBIDDEN_NAMES = {'__pycache__','.pytest_cache','node_modules','.pnpm-store','.DS_Store','settings_save_audit.jsonl','godmode.log'}
 FORBIDDEN_SUFFIXES = {'.pyc','.sqlite','.sqlite3','.db','.log'}
 MAX_ARCHIVE_MEMBERS = 20_000
@@ -114,13 +121,25 @@ def verify_tree(root: Path, pristine: bool=False) -> list[str]:
     js=''.join(p.read_text(encoding='utf-8', errors='ignore') for p in js_files)
     for name,text in [('backend',app),('frontend source',fe),('frontend bundle',js),('Tick Guard source',ea)]:
         if EXPECTED_BUILD not in text: errors.append(f'{name}: build identity mismatch')
-    expected_main='index-V1543-READINESS-COMPONENT-KERNEL.js'
-    expected_settings='Settings-V1513-JOURNAL-DRIVEN-FIXES.js'
-    expected_css='index-V1543-READINESS-COMPONENT-KERNEL.css'
-    for asset in (expected_main, expected_settings, expected_css):
-        if not (assets/asset).is_file(): errors.append(f'missing deployed asset: frontend/dist/assets/{asset}')
-    if f'/assets/{expected_main}' not in deployed_html or f'/assets/{expected_css}' not in deployed_html:
+    # Resolve the deployed entry assets by reading the served HTML, the same way a browser does.
+    # These were pinned to the literal names index-V1543-READINESS-COMPONENT-KERNEL.js /
+    # Settings-V1513-JOURNAL-DRIVEN-FIXES.js / index-V1543-READINESS-COMPONENT-KERNEL.css, which no
+    # bundler produces — Vite emits content-hashed names, and the packaged dist had been renamed by
+    # hand after the fact. So the integrity check could only ever pass against that one doctored
+    # directory and failed on any genuine rebuild, which is the opposite of what a release verifier
+    # should do: it must catch a tree modified after packaging, not a tree that was built correctly.
+    main_ref=re.search(r'<script[^>]+type="module"[^>]+src="/assets/([^"]+\.js)"', deployed_html)
+    css_ref=re.search(r'<link[^>]+rel="stylesheet"[^>]+href="/assets/([^"]+\.css)"', deployed_html)
+    if not main_ref or not css_ref:
         errors.append('deployed HTML does not reference the packaged assets')
+    else:
+        for asset in (main_ref.group(1), css_ref.group(1)):
+            if not (assets/asset).is_file():
+                errors.append(f'missing deployed asset: frontend/dist/assets/{asset}')
+    # The Settings page is code-split into its own lazy chunk; identify it by a marker only that
+    # page emits rather than by a filename the bundler owns.
+    if not any('Deterministic Runner Intelligence' in p.read_text(encoding='utf-8', errors='ignore') for p in js_files):
+        errors.append('missing deployed asset: Settings chunk (no chunk carries its controls)')
     if any(stale in js for stale in ('V14.1.22','V14.1.23','V15.0.0','V15.0.3-PRE-LIVE-SAFETY-HARDENED','V15.0.5-OPERATIONAL-CONTROLS-FIX','V15.0.6-TELEGRAM-CONTROLS-HARDENED')):
         errors.append('deployed JavaScript contains stale active release controls')
     settings_source=(root/'frontend/src/pages/Settings.tsx').read_text(encoding='utf-8')
@@ -224,6 +243,8 @@ def verify_tree(root: Path, pristine: bool=False) -> list[str]:
         if not file_path.is_file():
             errors.append(f'manifest unexpected file: {rel}')
             continue
+        if not pristine and rel == 'backend/data/settings.json':
+            continue   # live configuration, owned by the running app (see the checksum note below)
         if row.get('sha256') != sha256(file_path) or int(row.get('size',-1)) != file_path.stat().st_size:
             errors.append(f'manifest file checksum mismatch: {rel}')
     expected_manifest={
@@ -270,8 +291,22 @@ def verify_tree(root: Path, pristine: bool=False) -> list[str]:
     if not (root/'backend/services/prelive_safety.py').is_file():
         errors.append('pre-live safety supervisor missing')
     backend_settings=json.loads((root/'backend/data/settings.json').read_text(encoding='utf-8'))
-    if backend_settings != settings:
+    # backend/data/settings.json is the LIVE configuration once the bot has started: app.py applies
+    # schema migrations to it on boot and rewrites it on every save. Demanding byte-equality with the
+    # packaged template is right for an archive but impossible for an installation — after one start
+    # the migrations add keys and this check fails forever, on a healthy machine, for no reason. The
+    # archive path (pristine=True) still enforces it exactly.
+    if pristine and backend_settings != settings:
         errors.append('root and backend packaged settings differ')
+    elif not pristine:
+        # In a running installation the invariant that still matters is that the operator's live
+        # settings did not lose the packaged safety defaults.
+        live_execution = backend_settings.get('execution') or {}
+        live_prelive = backend_settings.get('preLive') or backend_settings.get('prelive') or {}
+        if live_execution.get('deploymentMode') != execution.get('deploymentMode'):
+            errors.append('live settings deploymentMode no longer matches the packaged default')
+        if live_prelive and prelive and live_prelive.get('mode') != prelive.get('mode'):
+            errors.append('live settings pre-live mode no longer matches the packaged default')
     automation=settings.get('automation') or {}
     if not bool(automation.get('requireTickGuardForLive')):
         errors.append('packaged settings do not require the authoritative Tick Guard')
@@ -340,7 +375,13 @@ def verify_tree(root: Path, pristine: bool=False) -> list[str]:
                 continue
             listed.add(rel)
             p=root/rel
-            if not p.is_file() or sha256(p)!=digest: errors.append(f'checksum mismatch: {rel}')
+            if not p.is_file():
+                errors.append(f'checksum mismatch: {rel}')
+            elif sha256(p)!=digest and (pristine or rel != 'backend/data/settings.json'):
+                # Same reasoning as the settings comparison above: the running bot owns
+                # backend/data/settings.json and rewrites it on migration and on every save, so its
+                # digest is expected to drift in an installed tree and only pinned in an archive.
+                errors.append(f'checksum mismatch: {rel}')
         expected={
             p.relative_to(root).as_posix()
             for p in root.rglob('*')

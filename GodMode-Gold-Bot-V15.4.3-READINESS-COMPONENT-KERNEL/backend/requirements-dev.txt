@@ -1,2 +1,6 @@
 -r requirements.txt
 pytest==9.0.3
+# starlette 1.x moved TestClient onto httpx2 and no longer pulls it in itself. Without this pin
+# every test module importing fastapi.testclient raises at collection time, which took the whole
+# 489-test suite from "passing" to "uncollectable" on a clean checkout.
+httpx2==2.9.1

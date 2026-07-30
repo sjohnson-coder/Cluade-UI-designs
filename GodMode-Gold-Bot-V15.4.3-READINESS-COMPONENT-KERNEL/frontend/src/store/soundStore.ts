@@ -12,15 +12,44 @@ type SoundState = {
   play: (event?: SoundEvent) => void;
 };
 
-const saved = localStorage.getItem('godmode-sound-enabled');
+// localStorage throws outright in a few real configurations (Safari private browsing, "block all
+// cookies", some kiosk/embedded webviews). These reads sit at module scope, so an exception here
+// aborted the whole module graph and the dashboard rendered a blank page instead of degrading.
+function readLocal(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function writeLocal(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch { /* preference is best-effort, never required */ }
+}
+
+const saved = readLocal('godmode-sound-enabled');
 const initial = saved === null ? true : saved === 'true';
-const savedPreset = (localStorage.getItem('godmode-sound-preset') as SoundPreset) || 'chime';
+const VALID_PRESETS: SoundPreset[] = ['chime', 'soft', 'alert', 'minimal'];
+const rawPreset = readLocal('godmode-sound-preset') as SoundPreset | null;
+const savedPreset: SoundPreset = rawPreset && VALID_PRESETS.includes(rawPreset) ? rawPreset : 'chime';
+
+// One AudioContext for the whole app, created lazily on first sound.
+//
+// tone() previously did `new AudioContextClass()` on every UI click and never closed it. Browsers
+// cap concurrent AudioContexts (Chrome allows six); past that, construction throws and UI sound
+// dies permanently for the session, while every leaked context holds an audio thread and hardware
+// buffer. A single shared context is also what the Web Audio API is designed around.
+let sharedCtx: AudioContext | null = null;
+function audioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) return null;
+  try {
+    if (!sharedCtx || sharedCtx.state === 'closed') sharedCtx = new AudioContextClass();
+    // Autoplay policy suspends the context until a user gesture; every caller here is one.
+    if (sharedCtx.state === 'suspended') void sharedCtx.resume();
+    return sharedCtx;
+  } catch { return null; }
+}
 
 function tone(event: SoundEvent = 'click', preset: SoundPreset = 'chime') {
-  if (typeof window === 'undefined') return;
-  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-  if (!AudioContextClass) return;
-  const ctx = new AudioContextClass();
+  const ctx = audioContext();
+  if (!ctx) return;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   const baseMap: Record<SoundEvent, [number, number, OscillatorType]> = {
@@ -49,18 +78,18 @@ export const useSoundStore = create<SoundState>((set, get) => ({
   enabled: initial,
   preset: savedPreset,
   setEnabled: (enabled) => {
-    localStorage.setItem('godmode-sound-enabled', String(enabled));
+    writeLocal('godmode-sound-enabled', String(enabled));
     set({ enabled });
     if (enabled) tone('success', get().preset);
   },
   toggleSound: () => {
     const enabled = !get().enabled;
-    localStorage.setItem('godmode-sound-enabled', String(enabled));
+    writeLocal('godmode-sound-enabled', String(enabled));
     set({ enabled });
     if (enabled) tone('success', get().preset);
   },
   setPreset: (preset) => {
-    localStorage.setItem('godmode-sound-preset', preset);
+    writeLocal('godmode-sound-preset', preset);
     set({ preset });
     if (get().enabled) tone('success', preset);
   },

@@ -3,6 +3,7 @@ import { Activity, BrainCircuit, Gauge, Layers, RefreshCcw, ShieldCheck, Sparkle
 import { Card, Checklist, ConfidenceRing, DataTable, MetricCard, PageHeader, ProgressBar, SectionTitle, SideBadge, Tag } from '../components/ui';
 import { LiveChart } from '../components/LiveChart';
 import { api } from '../lib/api';
+import { usePoll } from '../lib/usePoll';
 const money=(v:any,c='')=>`${c?c+' ':''}${Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const num=(v:any,d=1)=>Number(v||0).toFixed(d);
 
@@ -23,7 +24,10 @@ export default function AIAgent(){
   const runReview=async(period='daily',useAi=true)=>{setCoachMsg('Generating AI performance review...'); const r=await api.aiPerformanceReview(period,useAi); setReview(r); setCoachMsg(r.ok!==false?'Review generated.':'Review failed. Check API key/model or use local analysis.');};
   const rollback=async()=>{setCoachMsg('Rolling back last AI optimisation...'); const r=await api.aiOptimisationRollback(); setCoachMsg(r.ok?(r.message||'Rolled back'):(r.message||'Rollback failed')); await load();};
   const applyProfile=async(id:string)=>{setCoachMsg('Applying config profile...'); const r=await api.configLibraryApply(id); setCoachMsg(r.ok?`Applied ${r.profile?.name||id}. Rollback: ${r.rollbackSnapshot}`:(r.message||'Profile apply failed')); await load();};
-  useEffect(()=>{load(); loadRecs(); runReview('daily',false); const id=setInterval(()=>{load();loadRecs();},5000); return()=>clearInterval(id)},[]);
+  useEffect(()=>{void runReview('daily',false)/* one-shot: the LLM review is expensive and must not ride the 5s loop */;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+  usePoll(async()=>{await load(); await loadRecs();},5000);
   const d=matrix.decision||{}, k=analytics.kpis||{}, currency=analytics.currency||analytics.account?.currency||'';
   const gi=d.goldIntelligence||{}; const factors:any[]=Array.isArray(d.factors)?d.factors:[]; const questions:any[]=Array.isArray(d.traderQuestions)?d.traderQuestions:[];
   const blocks:string[]=d.decisionBlocks||[]; const soft:string[]=d.softBlocks||[];

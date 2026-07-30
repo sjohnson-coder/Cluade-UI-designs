@@ -26,6 +26,7 @@ from typing import Any
 from fastapi import Body, FastAPI, Request, Response, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -430,6 +431,12 @@ api_key = os.getenv("GODMODE_API_KEY", "").strip()
 
 app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_credentials=False, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "X-GodMode-Key"])
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+# The dashboard/trades/analytics/journal payloads are large, highly repetitive JSON and are
+# polled every 1-8 seconds. Uncompressed they cost ~230 KB/s per open tab, which is the single
+# largest contributor to a laggy dashboard over Wi-Fi or a Tailscale link. gzip takes the same
+# payloads down by roughly 90% at negligible CPU cost. minimum_size skips the many tiny status
+# replies where the compression header would cost more than it saves.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 if (FRONTEND_DIST / "assets").exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="frontend_assets")
@@ -573,15 +580,37 @@ async def security_middleware(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # The dashboard's three brand faces — Archivo (display), Inter (UI), Geist Mono (prices) — are
+    # loaded from Google Fonts by index.html, but this policy allowed neither the stylesheet host
+    # under style-src nor the font host under font-src (which fell through to default-src 'self').
+    # Chrome reports it plainly on every load:
+    #     Refused to load the stylesheet 'https://fonts.googleapis.com/css2?family=Archivo…'
+    #     because it violates the following Content Security Policy directive
+    # So on the documented entry point the entire type system silently degraded to system-ui, and
+    # every tabular-figure and display-weight decision in theme.css was moot. Naming the two hosts
+    # explicitly is the minimum that makes the shipped typography actually render; the rest of the
+    # policy stays as strict as it was. The font stacks in theme.css still list local fallbacks, so
+    # an air-gapped machine degrades to a chosen fallback rather than breaking.
+    font_css = "https://fonts.googleapis.com"
+    font_files = "https://fonts.gstatic.com"
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+        "default-src 'self'; img-src 'self' data: blob:; "
+        f"style-src 'self' 'unsafe-inline' {font_css}; font-src 'self' data: {font_files}; "
         + ("script-src 'self' 'unsafe-inline'; " if request.url.path == "/tools" else "script-src 'self'; ")
         + "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
     )
-    if request.url.path.startswith("/api/") or request.url.path.startswith("/assets/"):
+    if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
+    elif request.url.path.startswith("/assets/"):
+        # /assets holds content-hashed bundles: the filename changes whenever the bytes change, so
+        # the correct policy is the strongest possible caching. Sending no-store here — which this
+        # middleware did, matching a since-removed no-store meta tag in index.html — forced a full
+        # re-download of ~730 KB of unchanged vendor JavaScript on every load and every navigation,
+        # for no correctness benefit whatsoever. index.html itself stays no-store (INDEX_NO_STORE),
+        # which is what actually makes a new build visible immediately.
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
 
 
@@ -2823,12 +2852,18 @@ def _background_job_lock(label: str) -> threading.Lock:
 # daemon thread when stale. This keeps buttons/pages responsive even during Burst
 # management or slow broker IPC.
 _TURBO_REFRESH_FLAGS: dict[str, float] = {}
+# The in-flight check and the claim below must be one atomic step. Without this guard two
+# concurrent polls of the same stale endpoint both read an empty flag and both spawn a refresh
+# thread, so a heavy MT5 history aggregation runs twice in parallel and contends for the bridge.
+# At the dashboard's poll rate, with several browser tabs open, that was reliably reproducible.
+_TURBO_REFRESH_GUARD = threading.Lock()
 
 def _spawn_turbo_refresh(name: str, fn) -> None:
     try:
-        if _TURBO_REFRESH_FLAGS.get(name):
-            return
-        _TURBO_REFRESH_FLAGS[name] = time.time()
+        with _TURBO_REFRESH_GUARD:
+            if _TURBO_REFRESH_FLAGS.get(name):
+                return
+            _TURBO_REFRESH_FLAGS[name] = time.time()
         def _runner():
             try:
                 fn()
@@ -2839,7 +2874,8 @@ def _spawn_turbo_refresh(name: str, fn) -> None:
                     _report_suppressed_exception("suppressed_exception_line_1293", _suppressed_exc)
             finally:
                 try:
-                    _TURBO_REFRESH_FLAGS.pop(name, None)
+                    with _TURBO_REFRESH_GUARD:
+                        _TURBO_REFRESH_FLAGS.pop(name, None)
                 except Exception as _suppressed_exc:
                     _report_suppressed_exception("suppressed_exception_line_1298", _suppressed_exc)
         threading.Thread(target=_runner, name=f"godmode-turbo-{name}", daemon=True).start()
@@ -8428,11 +8464,52 @@ def _live_signals() -> list[dict[str, Any]]:
         })
     return signals
 
+#: Fields the Dashboard's closed-trade strip and the equity/analytics panels actually read.
+#: Everything else on a history record (per-trade candle arrays, AI lesson prose, tag lists,
+#: regime/structure annotations) belongs to the Journal and Trades pages, which fetch the full
+#: records from /api/trades and /api/journal.
+_DASHBOARD_HISTORY_FIELDS = (
+    "ticket", "symbol", "side", "direction", "outcome", "pnlUsd", "pnl", "lots", "volume",
+    "entryPrice", "exitPrice", "closeTime", "date", "time", "strategy", "rr", "reason",
+)
+#: How many closed trades the dashboard strip can show at once.
+_DASHBOARD_HISTORY_LIMIT = 20
+
+
+def _dashboard_trades_view(trades_data: dict[str, Any]) -> dict[str, Any]:
+    """Trim the trades block down to what the Dashboard actually renders.
+
+    /api/dashboard is the hottest poll in the product (1.8s while a position is open). The full
+    trades payload embeds every closed trade with its own candle array, which measured at 382 KB
+    of a 420 KB response — 91% of the traffic — and the Dashboard never reads a single field of
+    it. Serialising, transferring, parsing and localStorage-caching that on every tick was the
+    dominant source of dashboard lag. The active and pending legs, which the live position
+    panel and chart markers do read, are passed through untouched.
+    """
+    if not isinstance(trades_data, dict):
+        return trades_data
+    history = trades_data.get("history")
+    if not isinstance(history, list):
+        return trades_data
+    slim = dict(trades_data)
+    slim["history"] = [
+        {k: row[k] for k in _DASHBOARD_HISTORY_FIELDS if k in row}
+        for row in history[:_DASHBOARD_HISTORY_LIMIT]
+        if isinstance(row, dict)
+    ]
+    slim["historyCount"] = len(history)
+    slim["historyTruncated"] = len(history) > len(slim["history"])
+    slim["historySource"] = "/api/trades"
+    return slim
+
+
 def _build_dashboard_snapshot() -> dict[str, Any]:
     """Build a fresh dashboard snapshot. Called only by the turbo cache worker."""
     if not mt5_bridge.status().get("connected") and _demo_enabled():
         d = demo_data.dashboard()
         d["status"] = status()
+        if isinstance(d.get("trades"), dict):
+            d["trades"] = _dashboard_trades_view(d["trades"])
         mkt = _market_state()
         if isinstance(d.get("decision"), dict):
             d["decision"]["marketOpen"] = bool(mkt.get("open", False))
@@ -8444,7 +8521,7 @@ def _build_dashboard_snapshot() -> dict[str, Any]:
     account_data = _live_account()
     decision_cached = _cached_decision()
     market = decision_cached.get("_market") or _live_market()
-    trades_data = _live_trades()
+    trades_data = _dashboard_trades_view(_live_trades())
     decision = {k: v for k, v in decision_cached.items() if k != "_market"}
     # Never block Dashboard on heavy long-history analytics. Use whatever is cached
     # and refresh analytics independently in the background.
@@ -8552,8 +8629,13 @@ def _live_risk() -> dict[str, Any]:
     }
     return {
         "account": account_data,
-        "trades": trades_data,
-        "market": market,
+        # Same reasoning as the dashboard: the Risk page reads only trades.active, but the full
+        # block shipped 382 KB of closed-trade history (with per-trade candles) on a 7s poll.
+        # loss_streak above is computed from the full history before the trim, so the risk
+        # telemetry is unchanged — only the wire payload shrinks.
+        "trades": _dashboard_trades_view(trades_data),
+        # market.candles is a 23 KB array the Risk page never renders; it has no chart.
+        "market": {k: v for k, v in market.items() if k != "candles"} if isinstance(market, dict) else market,
         "warnings": warnings,
         "limits": _risk_limits_view(),
         "overrides": RISK_STATE,
@@ -18616,8 +18698,73 @@ def v15_external_context():
     return V15_ORCHESTRATOR.external.cached()
 
 
+#: Static file types that may be served from the root of frontend/dist. Deliberately a whitelist:
+#: the SPA fallback below is the last route in the application, so anything it agrees to read off
+#: disk is reachable by any unauthenticated request.
+_STATIC_ROOT_SUFFIXES = {
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".map": "application/json",
+    ".json": "application/json",
+    ".txt": "text/plain; charset=utf-8",
+    ".webmanifest": "application/manifest+json",
+}
+
+
+def _dist_root_file(full_path: str) -> Path | None:
+    """Resolve a root-relative request to a real file in frontend/dist, or None.
+
+    Only /assets was mounted as StaticFiles, so every OTHER file in dist — the whole runtime
+    enhancement layer that index.html loads from the root — fell through to the SPA catch-all and
+    was answered with index.html under Content-Type: text/html. Measured against the shipped build:
+
+        GET /v15-enterprise.js        -> 200 text/html  (6 KB of index.html)
+        GET /predictor-live-v1529.js  -> 200 text/html
+        GET /burst-live-v1530.css     -> 200 text/html
+
+    A <script> handed HTML either fails the MIME check or dies parsing `<!doctype`, and a
+    <link rel=stylesheet> handed HTML applies nothing. So on the documented entry point
+    (http://127.0.0.1:8000, which START_GODMODE.bat opens) the V15 Operational Intelligence panel,
+    the Early Impulse settings UI, the predictor live card, the Protected Burst gate trace and the
+    runtime recovery chip were all silently absent — every one of them a release headline. They
+    only ever worked through the Vite dev server, which serves public/ correctly.
+    """
+    if not full_path or full_path.endswith("/"):
+        return None
+    suffix = Path(full_path).suffix.lower()
+    if suffix not in _STATIC_ROOT_SUFFIXES:
+        return None
+    root = FRONTEND_DIST.resolve()
+    try:
+        candidate = (root / full_path).resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+    # Containment check: "../" segments and symlinks pointing outside dist must not be servable.
+    if candidate == root or root not in candidate.parents:
+        return None
+    return candidate if candidate.is_file() else None
+
+
 @app.get("/{full_path:path}", include_in_schema=False)
 def spa_fallback(full_path: str):
     if full_path.startswith("api/"):
         return JSONResponse({"detail": "Not found"}, status_code=404)
+    static_file = _dist_root_file(full_path)
+    if static_file is not None:
+        return FileResponse(
+            static_file,
+            media_type=_STATIC_ROOT_SUFFIXES[static_file.suffix.lower()],
+            # These filenames carry an explicit version suffix and are replaced, never edited in
+            # place, so they revalidate cheaply rather than being refetched on every navigation.
+            headers={"Cache-Control": "public, max-age=300, must-revalidate", "X-Content-Type-Options": "nosniff"},
+        )
     return _serve_index_with_overlay()

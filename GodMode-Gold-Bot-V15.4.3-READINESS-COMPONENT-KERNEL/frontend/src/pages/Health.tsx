@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Activity, RefreshCcw, PlugZap, Stethoscope, FileText, HeartPulse, Database, ArrowLeftRight, Cpu, NotebookPen, ShieldCheck, CalendarDays, Newspaper, Globe, Plug, Copy, Check, X } from 'lucide-react';
 import { Card, PageHeader, Tag, SectionTitle, MetricCard, Checklist } from '../components/ui';
 import { api } from '../lib/api';
+import { usePoll } from '../lib/usePoll';
 
 const ICONS: Record<string, any> = { mt5: Plug, dataSource: Database, trading: ArrowLeftRight, scanLoop: Cpu, journal: NotebookPen, riskEngine: ShieldCheck, feedCalendar: CalendarDays, feedNews: Newspaper, feedMacro: Globe };
 const tone = (s: string): 'green'|'red'|'gold' => s==='up'?'green':s==='down'?'red':'gold';
@@ -53,7 +54,7 @@ export default function Health() {
       return null;
     } finally { setLoading(false); }
   }, []);
-  useEffect(() => { load(); const t = setInterval(()=>load(false), 15000); return () => clearInterval(t); }, [load]);
+  usePoll(() => load(false), 15000, [load]);
 
   const reconnect = async () => {
     setBusy('r');
