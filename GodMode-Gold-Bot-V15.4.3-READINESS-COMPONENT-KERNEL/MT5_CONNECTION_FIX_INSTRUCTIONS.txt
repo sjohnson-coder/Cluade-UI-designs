@@ -1,0 +1,25 @@
+GODMODE V14.1.22 - MT5 CONNECTION FIX
+
+CONFIRMED ERROR
+The message "AttributeError: _ARRAY_API not found" means MetaTrader5 was loaded with an incompatible NumPy 2.x binary. The backend continues running, but the MT5 bridge is disabled.
+
+CLEAN INSTALL
+1. Close the GodMode backend window.
+2. Keep MetaTrader 5 open and logged in to the broker.
+3. Extract V14.1.22 into a new folder.
+4. Run START_GODMODE.bat.
+5. The launcher checks NumPy and MetaTrader5. If incompatible, it automatically reinstalls NumPy 1.26.4 and MetaTrader5 5.0.45 before starting.
+
+REPAIR AN EXISTING EXTRACTED V14.1.22 FOLDER
+1. Close the backend window.
+2. Run FIX_MT5_RUNTIME.bat.
+3. When it reports OK, run START_GODMODE.bat.
+
+AFTER THE IMPORT FIX
+If the dashboard still shows MT5 Offline:
+1. Open MT5 and confirm the account status in the bottom-right corner is connected.
+2. In GodMode Settings > MT5 Connection, enter the exact terminal path when auto-detect chooses the wrong installation.
+   Example: C:\Program Files\MetaTrader 5\terminal64.exe
+3. Click Save & Apply, then Auto-detect Running MT5 or Connect MT5.
+4. Run this command from the bot folder for a direct diagnostic:
+   .venv\Scripts\python.exe VERIFY_MT5_RUNTIME.py --connect

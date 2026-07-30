@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 2,
+  "buildId": "V15.4.3-READINESS-COMPONENT-KERNEL",
+  "issuer": "local-release-officer",
+  "signatureAlgorithm": "hmac-sha256",
+  "signature": "",
+  "issuedAt": null,
+  "expiresAt": null,
+  "gates": {
+    "windowsMetaEditorCompile": {
+      "passed": false,
+      "observedAt": null,
+      "evidence": "",
+      "sha256": ""
+    },
+    "tickGuardAttached": {
+      "passed": false,
+      "observedAt": null,
+      "evidence": "",
+      "sha256": ""
+    },
+    "brokerSpecVerified": {
+      "passed": false,
+      "observedAt": null,
+      "evidence": "",
+      "sha256": ""
+    },
+    "orderLifecycleVerified": {
+      "passed": false,
+      "observedAt": null,
+      "evidence": "",
+      "sha256": ""
+    },
+    "dynamicSlReplayPassed": {
+      "passed": false,
+      "observedAt": null,
+      "evidence": "",
+      "sha256": ""
+    },
+    "burstFailureDrillsPassed": {
+      "passed": false,
+      "observedAt": null,
+      "evidence": "",
+      "sha256": ""
+    },
+    "demoSoakPassed": {
+      "passed": false,
+      "observedAt": null,
+      "evidence": "",
+      "sha256": ""
+    },
+    "tlsRemoteVerified": {
+      "passed": false,
+      "observedAt": null,
+      "evidence": "",
+      "sha256": ""
+    },
+    "backupRestoreVerified": {
+      "passed": false,
+      "observedAt": null,
+      "evidence": "",
+      "sha256": ""
+    }
+  }
+}

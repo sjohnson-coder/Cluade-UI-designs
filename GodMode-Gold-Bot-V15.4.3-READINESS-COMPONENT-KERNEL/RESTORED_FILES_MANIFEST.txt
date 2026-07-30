@@ -1,0 +1,57 @@
+V14.1.22 FULL FILES RESTORED
+============================
+
+Primary launchers
+- START_GODMODE.bat
+- start_all.bat
+- 1_START_GODMODE_BOT_NO_NPM_REQUIRED.bat
+- START_HERE_NO_NPM_REQUIRED.bat
+- start_backend.bat
+- start_frontend.bat
+- DEV_START_BACKEND_WITH_RELOAD_ONLY.bat
+
+Tick Guard and MT5 installation
+- mt5_ea/GodModeTickGuard.mq5
+- mt5_ea/README_EA_INSTALL.md
+- COMPILE_TICK_GUARD_V14_1_22.bat
+- COMPILE_TICK_GUARD_V14_1_18.bat compatibility launcher
+- 2_INSTALL_EA_AND_START_GODMODE.bat
+- install_ea.py
+
+Installation, rebuild and upgrade tools
+- INSTALL_GODMODE.bat
+- REBUILD_DASHBOARD.bat
+- FIX_NPM_AND_START_DEV_FRONTEND.bat
+- UPGRADE_HELPER_COPY_MY_SETTINGS.bat
+- VERIFY_RUNNING_BUILD.py
+- VERIFY_RELEASE.py
+
+Certification and safety files
+- SIGN_LIVE_CERTIFICATION.py
+- live_certification.template.json
+- V14_ENTERPRISE_VALIDATION_PLAN.md
+
+Remote and cross-platform launchers
+- start_backend_mobile.bat
+- start_backend_mobile_mac.command
+- START_HERE_MAC.command
+- MOBILE_REMOTE_ACCESS.md
+- RUN_ON_MAC.md
+
+Source and tests
+- complete frontend/src tree and frontend build configuration
+- complete backend/services tree
+- backend/tests and root tests
+- requirements-dev.txt and pytest.ini
+
+Documentation
+- complete user guides, setup guides, release notes and archived documents
+
+Not restored intentionally
+- runtime databases
+- logs
+- caches
+- .venv
+- node_modules
+- compiled Python bytecode
+These are machine-generated and should not be shipped between installations.

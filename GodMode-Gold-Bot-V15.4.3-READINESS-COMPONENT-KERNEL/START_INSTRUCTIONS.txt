@@ -1,0 +1,39 @@
+GODMODE GOLD BOT V15.4.3 - INTELLIGENCE WIRED
+================================================================
+
+FIRST INSTALLATION
+1. Close every old GodMode, Python and Uvicorn command window.
+2. Extract this ZIP into a completely new folder. Do not overwrite an older installation.
+3. Open the exact MetaTrader 5 terminal used for trading and log in.
+4. Remove every older GodModeTickGuard from all charts.
+5. Double-click 2_INSTALL_EA_AND_START_GODMODE.bat.
+6. In MT5 Navigator, refresh Expert Advisors and attach GodModeTickGuard to one active XAUUSD chart.
+7. Tick Allow Algo Trading and keep the toolbar Algo Trading button green.
+8. Run CHECK_TICK_GUARD.bat. It must report PASS for V15.4.3.
+9. Leave the GodMode Backend V15.4.3 window open.
+10. Open Health Center and allow the runtime loops to warm up.
+
+NORMAL START
+- Double-click START_GODMODE.bat or start_all.bat.
+
+REQUIRED HEALTH RESULT BEFORE LIVE ENTRY
+- MT5 Connection: OK
+- Data Source: REAL MT5
+- Tick Guard: fresh exact-build V15.4.3 heartbeat
+- MQL5 control bridge: healthy
+- Live ATR: present and valid
+- Local Live Runtime Attestation: OK
+- No risk, validation, market-session or reconciliation blocker
+
+DETERMINISTIC PROTECTION RULES
+- Python calculates one policy directive per ticket.
+- Tick Guard is the sole automated broker-side SL actuator while that directive is fresh.
+- BREATH requires a broker-confirmed profitable SL.
+- PROTECT cannot activate below the configured ATR threshold.
+- Recovery timers use elapsed seconds, not scan-loop counts.
+- A missing live ATR blocks every risk-changing recovery or scaling action.
+
+IMPORTANT
+- Live Trading ships OFF, Auto Trading ships OFF and Dry Run ships ON.
+- Do not enable unrestricted live operation until the V15.4.3 EA compiles with 0 errors and demo restart/network tests pass.
+- The enterprise HMAC evidence certificate is optional unless enterprise_evidence mode is selected.

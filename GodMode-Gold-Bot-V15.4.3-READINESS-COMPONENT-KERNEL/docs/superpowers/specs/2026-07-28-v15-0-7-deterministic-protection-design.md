@@ -1,0 +1,3 @@
+# V15.0.7 Deterministic Protection Design
+
+Python is the single protection-policy owner. Tick Guard is the exclusive automated broker-side SL actuator while a fresh, build-attested control directive exists; it does not run a competing BE/trailing policy. Breathing requires a live MT5 readback showing a profitable SL. V14 protection cannot activate below the configured ATR threshold. All recovery timing uses elapsed seconds, state is persisted on every new peak and confirmed SL change, trade age comes from MT5 position timestamps, and missing ATR fails closed for risk-changing decisions. Missed moves are deduplicated by closed-candle identity and replayed from the first executable quote using chronologically ordered bid/ask ticks.

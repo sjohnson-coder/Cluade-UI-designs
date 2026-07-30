@@ -1,0 +1,13 @@
+CONFIRMED SETTINGS ROOT CAUSE
+=============================
+The production dashboard runs at http://127.0.0.1:8000.
+The previous security middleware allowed browser origins only on port 5173.
+Therefore GET /api/settings worked, but every browser POST from the real dashboard returned HTTP 403:
+- POST /api/mt5/live-mode
+- POST /api/mt5/auto-trading
+- POST /api/settings
+
+The page then reloaded the last saved values, which looked like all controls reverted.
+The working reference build did not contain this blocking same-origin middleware.
+
+V14.1.21 fixes the middleware by allowing exact same-host and same-port dashboard requests, treating localhost and 127.0.0.1 as equivalent only on the same port, and continuing to reject cross-site writes.

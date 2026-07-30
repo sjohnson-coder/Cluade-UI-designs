@@ -1,0 +1,11 @@
+CONFIRMED ROOT CAUSE
+
+The backend traceback showed MetaTrader5 failing during `from ._core import *` with:
+
+AttributeError: _ARRAY_API not found
+
+MetaTrader5 5.0.45 is a compiled Windows extension using the NumPy 1.x C API. The previous requirements file did not pin NumPy. Installing matplotlib could therefore install NumPy 2.x. NumPy 2 intentionally breaks binary compatibility with extensions built against NumPy 1.x.
+
+The bridge catches the import failure and sets `mt5 = None`, allowing Uvicorn and the dashboard to start. This makes the application look operational while every MT5 connection attempt remains unavailable.
+
+V14.1.22 pins NumPy 1.26.4, verifies the MetaTrader5 import before backend startup, automatically repairs an existing incompatible virtual environment, and provides a manual repair launcher.

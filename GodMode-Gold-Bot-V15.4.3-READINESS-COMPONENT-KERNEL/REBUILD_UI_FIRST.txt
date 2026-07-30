@@ -1,0 +1,59 @@
+========================================================================
+  1) YOU DO NOT NEED TO REBUILD TO USE PURGE OR EXPORT
+========================================================================
+
+    Open:  http://127.0.0.1:8000/tools
+
+That page is served straight from the backend. It has:
+  * Purge Trade History / Learned Memory / Journal / Everything
+  * Download trade journal as CSV
+  * Download trade journal as PDF
+  * Live diagnostics (build status, news status, strategy ranking)
+
+It works right now, no npm, no build.
+
+========================================================================
+  2) TO SEE THE NEW BUTTONS INSIDE THE DASHBOARD ITSELF
+========================================================================
+
+The bot serves the compiled dashboard from  frontend/dist/
+All UI source lives in                      frontend/src/
+
+Your dist/ bundle was compiled on JULY 7 — before every recent change.
+That is why 12d-2, the Purge card, Export buttons, the AI audit panel and
+the live Strategies scoring were invisible. The code exists; it was never
+compiled. (Your screenshot even says "V12.66" — that is the old bundle.)
+
+One time, with internet:
+
+    cd frontend
+    npm install
+    npm run build
+
+Then restart the bot and hard-refresh the browser (Ctrl+F5).
+
+The backend now DETECTS a stale bundle: it prints a loud banner on
+startup and exposes GET /api/system/build-status. You will never again
+be silently served an old UI.
+
+========================================================================
+  3) FIXED IN V12.77 (backend — live immediately, no rebuild)
+========================================================================
+
+  * NEWS / DXY / US10Y "not_configured" forever:
+    Feed URLs saved in Settings 12c were written to settings.json and
+    then NEVER pushed to the feed objects, which only ever read
+    environment variables. That wire did not exist. It does now, and a
+    changed URL refreshes the feed immediately.
+
+  * IMPORT CONFIG "did nothing":
+    aiAuditor and mt5Connection were EXPORTED but silently DROPPED on
+    import. Both are now imported. Import also reports exactly which
+    sections were applied and which were ignored.
+
+  * OLD TRADES:
+    On the first boot of a new version the bot stamps a data cutoff, so
+    only trades taken by THIS engine onward count. Nothing is deleted on
+    your broker. Opt out with GODMODE_KEEP_HISTORY_ON_UPGRADE=1
+    You can also purge manually at /tools at any time.
+========================================================================

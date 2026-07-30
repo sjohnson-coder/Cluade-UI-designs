@@ -1,0 +1,14 @@
+{
+  "macro": {
+    "status": "live",
+    "goldBias": "NEUTRAL_GOLD",
+    "liveFeeds": [
+      "DXY",
+      "US10Y"
+    ],
+    "detail": "DXY softening supports gold upside; US10Y yield rising pressures gold",
+    "persisted": true,
+    "stale": false,
+    "lastLiveAt": 1785429110.4972956
+  }
+}
