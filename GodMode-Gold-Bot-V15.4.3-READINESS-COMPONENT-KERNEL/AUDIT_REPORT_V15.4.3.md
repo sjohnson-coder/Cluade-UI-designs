@@ -135,6 +135,26 @@ checkout could not install dependencies at all.
 module importing `fastapi.testclient` raised at collection, taking all 489 tests from "passing" to
 "uncollectable" on a clean machine.
 
+### 7. The archive shipped the packager's runtime state
+
+The uploaded zip contained a populated `data/godmode_memory.sqlite` (20 KB of performance memory),
+`backend/data/logs/godmode.log`, three `config_snapshots/` files timestamped from the packaging
+session, plus `settings.lastgood.json`, `data_epoch.json`, `engine_version.json`,
+`feed_status_cache.json` and the `v15/` runtime state.
+
+None of these appear in `SHA256SUMS.txt`, and every one is a *forbidden release artifact* under the
+package's own `is_release_file()` — `.sqlite` and `.log` are in `FORBIDDEN_SUFFIXES`, and root
+`data/` and `backend/data/` (bar `settings.json`) are excluded outright. So the shipped archive
+could never pass `VERIFY_RELEASE.py <zip>`, the archive-mode check that file exists to perform.
+
+Practically, a new installation inherited the packager's leftover trade memory, config snapshots
+and feed cache instead of starting clean. `app.py` calls `mkdir(parents=True, exist_ok=True)` on
+every data path, so none of it needs to ship.
+
+**Fixed:** the rebuilt archive contains only `backend/data/settings.json` — byte-identical to the
+packaged `GODMODE_SETTINGS_V14_1_23.json` template, which is exactly the invariant pristine
+verification enforces.
+
 ---
 
 ## Performance
@@ -304,11 +324,25 @@ Also fixed:
 | `tsc --noEmit` | clean |
 | `npm ci` from a clean checkout | succeeds |
 | `npm run build` | succeeds, runtime layer survives |
-| `VERIFY_RELEASE.py` | PASS |
+| `VERIFY_RELEASE.py` (runtime installation) | PASS |
+| `VERIFY_RELEASE.py <zip>` (**archive / pristine**) | **PASS** — the shipped zip could not |
 | Browser console errors, shipped build | 6+ (CSP + MIME refusals) |
 | Browser console errors, fixed build | **0** |
 | Routes rendering real content | 10 of 11 confirmed; Settings — see below |
 | Duplicate DOM ids | none |
+
+### Clean-room check of the delivered archive
+
+The zip was extracted to an empty directory and exercised as a new user would:
+
+| Step | Result |
+|---|---|
+| `python -m venv .venv && pip install -r backend/requirements-dev.txt` | succeeds |
+| `pytest` from that fresh install | **489 passed** |
+| `uvicorn app:app` cold start | healthy |
+| `/api/health`, `/api/readiness`, `/api/dashboard` | 200 |
+| `/api/dashboard` gzipped | **9,203 bytes** (was 420 KB uncompressed) |
+| All 7 runtime scripts + stylesheets + favicon | correct MIME types (all were `text/html`) |
 
 ---
 

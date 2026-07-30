@@ -31,3 +31,9 @@ frontend/.env
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Runtime state written by the app; must never be packaged (VERIFY_RELEASE rejects it).
+data/
+backend/data/*
+!backend/data/settings.json
+!backend/data/**/.gitkeep
