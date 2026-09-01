@@ -1,0 +1,531 @@
+<title>The Gold Clock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --paper:#F4F3EE; --surface:#FCFBF7; --sunk:#EDEBE3;
+  --ink:#17181B; --ink-2:#4A4C52; --muted:#75777D;
+  --rule:#DCD9CE; --rule-2:#C6C2B4;
+  --accent:#8E6212; --accent-soft:#E8DCC0;
+  --pos:#1F6F4A; --neg:#A5322B;
+  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a;
+  --band1:#DCD3BC; --band2:#CFD6DE; --band3:#E2D2CB;
+  --flag:rgba(142,98,18,.10);
+  --shadow:0 1px 2px rgba(23,24,27,.05), 0 8px 24px -12px rgba(23,24,27,.14);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --paper:#121316; --surface:#191A1E; --sunk:#101114;
+    --ink:#E9E7E1; --ink-2:#B4B4B0; --muted:#8D8F95;
+    --rule:#2B2D32; --rule-2:#3C3F45;
+    --accent:#D9A648; --accent-soft:#3A3020;
+    --pos:#4FB183; --neg:#E2796E;
+    --c1:#3987e5; --c2:#d95926; --c3:#199e70;
+    --band1:#3A352A; --band2:#2A323B; --band3:#3B302B;
+    --flag:rgba(217,166,72,.12);
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --paper:#121316; --surface:#191A1E; --sunk:#101114;
+  --ink:#E9E7E1; --ink-2:#B4B4B0; --muted:#8D8F95;
+  --rule:#2B2D32; --rule-2:#3C3F45;
+  --accent:#D9A648; --accent-soft:#3A3020;
+  --pos:#4FB183; --neg:#E2796E;
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70;
+  --band1:#3A352A; --band2:#2A323B; --band3:#3B302B;
+  --flag:rgba(217,166,72,.12);
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:16px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px 96px}
+.measure{max-width:65ch}
+h1,h2,h3{font-family:Newsreader,Georgia,"Times New Roman",serif;font-weight:500;text-wrap:balance;margin:0}
+p{margin:0 0 1.05em}
+a{color:var(--accent);text-underline-offset:2px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+/* masthead */
+.mast{border-bottom:1px solid var(--rule-2);padding:44px 0 26px;margin-bottom:40px}
+.mast .rule-top{height:3px;background:var(--accent);width:64px;margin-bottom:22px}
+.mast h1{font-size:clamp(40px,6.4vw,68px);line-height:1.02;letter-spacing:-.021em;margin-bottom:14px}
+.mast .sub{font-family:Newsreader,serif;font-size:clamp(18px,2.2vw,22px);font-style:italic;color:var(--ink-2);max-width:44ch;line-height:1.42}
+.mast .meta{display:flex;flex-wrap:wrap;gap:26px;margin-top:26px;padding-top:18px;border-top:1px solid var(--rule)}
+.mast .meta div{display:flex;flex-direction:column;gap:2px}
+.mast .meta .k{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.mast .meta .v{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:500}
+
+/* verdict */
+.verdict{background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--accent);
+  padding:26px 30px;margin:0 0 52px;box-shadow:var(--shadow)}
+.verdict h2{font-size:23px;margin-bottom:12px;letter-spacing:-.01em}
+.verdict p:last-child{margin-bottom:0}
+
+section{margin:0 0 60px;scroll-margin-top:20px}
+h2.sec{font-size:clamp(26px,3.4vw,34px);letter-spacing:-.016em;margin:0 0 6px;padding-top:8px}
+.sec-num{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;color:var(--accent);
+  text-transform:uppercase;display:block;margin-bottom:10px}
+.lede{font-family:Newsreader,serif;font-size:20px;line-height:1.5;color:var(--ink-2);margin:0 0 24px;max-width:56ch}
+h3{font-size:19px;margin:34px 0 10px;letter-spacing:-.008em}
+
+/* exhibits */
+figure{margin:30px 0;background:var(--surface);border:1px solid var(--rule);padding:22px 24px 18px;box-shadow:var(--shadow)}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-top:14px;padding-top:12px;border-top:1px solid var(--rule)}
+figcaption b{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--accent);display:block;margin-bottom:4px;font-weight:600}
+
+/* svg type */
+.axtitle{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;fill:var(--muted)}
+.tick{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:var(--muted)}
+.barval{font-family:"IBM Plex Mono",monospace;font-size:10.5px;fill:var(--ink-2)}
+.note{font-family:"IBM Plex Sans",sans-serif;font-size:11.5px;fill:var(--muted);font-style:italic}
+.grid{stroke:var(--rule);stroke-width:1}
+.zero{stroke:var(--rule-2);stroke-width:1.5}
+.bar rect{fill:var(--accent);opacity:.32;transition:opacity .12s}
+.bar:hover rect{opacity:.75}
+.bar.lead rect{opacity:.82}
+.bar.pos rect{fill:var(--pos);opacity:.7}
+.bar.neg rect{fill:var(--neg);opacity:.7}
+.bar.sHigh rect,.sw.sHigh{fill:var(--c1);opacity:.8}
+.bar.sLow rect,.sw.sLow{fill:var(--c2);opacity:.8}
+.band{opacity:.85}
+.band.s1{fill:var(--band1)} .band.s2{fill:var(--band2)} .band.s3{fill:var(--band3)}
+.bandlab{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.14em;fill:var(--ink-2)}
+.flag{fill:var(--flag);stroke:var(--accent);stroke-width:1;stroke-dasharray:3 3}
+.line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.line.c1{stroke:var(--c1)} .line.c2{stroke:var(--c2)} .line.c3{stroke:var(--c3)}
+.dot.c1{fill:var(--c1)} .dot.c2{fill:var(--c2)} .dot.c3{fill:var(--c3)}
+.dot{stroke:var(--surface);stroke-width:2}
+.bench{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 4}
+.endlab{font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:500;fill:var(--ink)}
+.c1-t{fill:var(--c1)} .c2-t{fill:var(--c2)} .c3-t{fill:var(--c3)} .bench-t{fill:var(--muted)}
+
+/* tables */
+.tw{overflow-x:auto;margin:26px 0;border:1px solid var(--rule);background:var(--surface);box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
+caption{text-align:left;padding:16px 20px 12px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;border-bottom:1px solid var(--rule)}
+th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--muted);font-weight:500;padding:11px 16px;border-bottom:1px solid var(--rule-2);white-space:nowrap}
+td{padding:10px 16px;border-bottom:1px solid var(--rule);vertical-align:baseline}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--sunk)}
+td.num,th.num{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.name{font-weight:500}
+.pos{color:var(--pos)} .neg{color:var(--neg)}
+.pill{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;padding:2px 7px;border-radius:2px;font-weight:600;white-space:nowrap}
+.pill.dead{background:color-mix(in srgb,var(--neg) 14%,transparent);color:var(--neg)}
+.pill.live{background:color-mix(in srgb,var(--pos) 14%,transparent);color:var(--pos)}
+.pill.warn{background:var(--accent-soft);color:var(--accent)}
+
+/* callouts */
+.callout{border:1px solid var(--rule);border-left:3px solid var(--neg);background:var(--surface);
+  padding:20px 24px;margin:26px 0}
+.callout.good{border-left-color:var(--pos)}
+.callout .lab{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);display:block;margin-bottom:7px}
+.callout p:last-child{margin-bottom:0}
+
+/* stat row */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:1px;background:var(--rule);
+  border:1px solid var(--rule);margin:28px 0}
+.stat{background:var(--surface);padding:18px 20px}
+.stat .k{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:6px}
+.stat .v{font-family:"IBM Plex Mono",monospace;font-size:26px;font-weight:500;letter-spacing:-.02em;line-height:1.1}
+.stat .d{font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.4}
+
+ul.clean{margin:0 0 1.05em;padding-left:1.15em}
+ul.clean li{margin-bottom:.5em}
+ol.steps{margin:0 0 1.05em;padding-left:1.3em}
+ol.steps li{margin-bottom:.7em}
+code{font-family:"IBM Plex Mono",monospace;font-size:.9em;background:var(--sunk);padding:1px 5px;border-radius:2px}
+hr.div{border:none;border-top:1px solid var(--rule);margin:52px 0}
+footer{border-top:1px solid var(--rule-2);padding-top:26px;margin-top:64px;font-size:13px;color:var(--muted)}
+footer h3{font-size:15px;margin:0 0 12px;color:var(--ink)}
+footer ol{padding-left:1.3em;margin:0}
+footer li{margin-bottom:7px;line-height:1.5}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:640px){
+  .wrap{padding:0 18px 64px}
+  figure{padding:16px 14px 12px}
+  .mast .meta{gap:18px}
+}
+</style>
+<div class="wrap">
+
+<header class="mast">
+  <div class="rule-top"></div>
+  <div class="eyebrow">XAUUSD structural research &middot; 4,077,891 one-minute bars</div>
+  <h1>The Gold Clock</h1>
+  <p class="sub">Eleven and a half years of XAUUSD, tested for a loophole. The clock is real. Almost nothing else is.</p>
+  <div class="meta">
+    <div><span class="k">Sample</span><span class="v">2015-01-02 &rarr; 2026-08-28</span></div>
+    <div><span class="k">Sessions</span><span class="v">3,006</span></div>
+    <div><span class="k">M1 bars</span><span class="v">4,077,891</span></div>
+    <div><span class="k">Strategies tested</span><span class="v">64</span></div>
+    <div><span class="k">Survived costs</span><span class="v">1</span></div>
+  </div>
+</header>
+
+<div class="verdict">
+  <h2>What this study found</h2>
+  <p>There is no loophole in XAUUSD's <em>direction</em>. Yesterday's return explains 0.018% of the variance in today's. Every classic Smart&nbsp;Money / ICT liquidity model tested here &mdash; twenty variants of sweep-and-reclaim across the London and New York killzones &mdash; came out at or below break-even before costs, and negative after them. News direction is a coin flip. The single largest statistical anomaly in the raw data turned out to be a stale price print.</p>
+  <p>There <em>is</em> a loophole in XAUUSD's <strong>clock</strong>. Volatility is roughly three thousand times more forecastable than direction, and gold's entire risk-adjusted return over 11.7 years was earned while Asia was awake and given back while New&nbsp;York traded. Re-weighting exposure by session &mdash; without predicting a single price &mdash; lifted the Sharpe ratio from 0.55 to 1.02 and cut the maximum drawdown from &minus;28.3% to &minus;18.3% on the same bars.</p>
+  <p>That is the whole finding. It is worth building. It is not a 100% win rate, and the last section explains why nothing ever will be.</p>
+</div>
+
+<section>
+  <span class="sec-num">Section 01 &middot; The premise</span>
+  <h2 class="sec">A 100% win rate is a dial, not an edge</h2>
+  <p class="lede">Before hunting for one, it is worth seeing exactly what a near-perfect win rate is made of &mdash; because it is trivially easy to manufacture and tells you nothing about whether a system makes money.</p>
+
+  <div class="measure">
+  <p>Take one setup from this study: fade a sweep of the Asian session high during the London killzone. Hold the entry rule, the stop and the sample completely fixed. Change only the profit target. Here is what happens across 1,107 real trades.</p>
+  </div>
+
+  <div class="tw">
+  <table>
+    <caption>Exhibit 1 &middot; The same 1,107 trades, read at eight different targets</caption>
+    <thead><tr><th>Target</th><th class="num">Win rate</th><th class="num">Expectancy</th><th class="num">Total</th><th class="num">Profit factor</th><th class="num">Worst losing streak</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">0.25 R</td><td class="num">76.2%</td><td class="num neg">&minus;0.129 R</td><td class="num neg">&minus;142.8 R</td><td class="num">0.44</td><td class="num">9</td></tr>
+      <tr><td class="mono">0.50 R</td><td class="num">66.7%</td><td class="num neg">&minus;0.125 R</td><td class="num neg">&minus;138.6 R</td><td class="num">0.67</td><td class="num">7</td></tr>
+      <tr><td class="mono">1.00 R</td><td class="num">51.2%</td><td class="num neg">&minus;0.101 R</td><td class="num neg">&minus;111.9 R</td><td class="num">0.82</td><td class="num">9</td></tr>
+      <tr><td class="mono">2.00 R</td><td class="num">35.5%</td><td class="num neg">&minus;0.088 R</td><td class="num neg">&minus;97.0 R</td><td class="num">0.88</td><td class="num">17</td></tr>
+      <tr><td class="mono">5.00 R</td><td class="num">24.2%</td><td class="num neg">&minus;0.104 R</td><td class="num neg">&minus;114.5 R</td><td class="num">0.88</td><td class="num">21</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="measure">
+  <p>The win rate moves from 24% to 76% and the strategy stays exactly as unprofitable. Push the target down to 0.05&nbsp;R and remove costs entirely &mdash; the most favourable case that can be constructed &mdash; and the same setup posts a <strong>94.4% win rate</strong>: 1,045 wins against 62 losses, for a net of <span class="neg mono">&minus;9.7&nbsp;R</span>.</p>
+  </div>
+
+  <div class="callout">
+    <span class="lab">What a 95%-win-rate bot actually is</span>
+    <p>It is this table taken to its limit. Tiny targets, distant stops, and a run of wins long enough to look like proof. Grid and martingale expert advisors reach the same place by never realising a loss at all &mdash; they average into drawdown, so the win rate approaches 100% by construction and the losses accumulate off the books as open exposure. They work until a trend runs, and then they return the year in a week.</p>
+    <p>Any vendor quoting a win rate without an expectancy, a profit factor and a maximum drawdown is quoting the one number that can be set to anything.</p>
+  </div>
+  <p class="measure">So the target of this study is not win rate. It is <strong>expectancy that survives cost, an out-of-sample split, and a data-quality audit</strong>. Three things almost nothing survived.</p>
+</section>
+
+<hr class="div">
+
+<section>
+  <span class="sec-num">Section 02 &middot; Method</span>
+  <h2 class="sec">How the data was built, and the hour that lies</h2>
+  <p class="lede">Two decisions determine whether an intraday gold study produces knowledge or noise. Both were wrong in the obvious version of this analysis.</p>
+
+  <h3>The timezone almost everyone gets wrong</h3>
+  <div class="measure">
+  <p>The source publishes its one-minute XAUUSD export as <em>&ldquo;Eastern Standard Time, no daylight savings&rdquo;</em>. It is not. Anchoring on two events whose wall-clock time is fixed by definition &mdash; Non-Farm Payrolls at 08:30 New York, and the London PM gold fix at 15:00 London &mdash; both land on the identical stamp in January and in July. They can only do that if the stamps already carry New&nbsp;York daylight time.</p>
+  <p>Taking the documentation at its word shifts every summer observation by one hour, which smears each session boundary across two hours for eight months of every year and quietly destroys any session-level result. Every figure in this report was computed after that check passed, and <code>verify_timezone()</code> re-runs it.</p>
+  </div>
+
+  <h3>The largest anomaly in the data is not real</h3>
+  <div class="measure">
+  <p>Scanning all 24 hours for drift, one hour dominates everything: 18:00 New&nbsp;York, the session reopen, at <span class="mono">+2.87&nbsp;bp</span> mean with a 60.5% hit rate and <span class="mono">t&nbsp;=&nbsp;7.75</span>. Over 11.7 years it accumulates $2,131 per ounce held. It looks like the loophole.</p>
+  <p>It is a stale quote. Decomposing that hour minute by minute, <strong>42.8% of the entire effect comes from the single first print</strong> of the session, and 61.2% from the first five minutes. The reopen bar carries the last quote from before the daily break, so measuring open-to-close on it manufactures a return that no order could ever have filled. Every other hour of the day is unremarkable on this test &mdash; the artifact is isolated to the reopen.</p>
+  <p>Remove that one print and the effect collapses from <span class="mono">t&nbsp;=&nbsp;7.75</span> to <span class="mono">t&nbsp;=&nbsp;2.66</span>, and a $0.30 spread turns it negative. This is not a quirk of one vendor: researchers hit the identical trap measuring overnight drift in the GDX gold-miners ETF, where an apparent 30%+ annualised anomaly largely evaporated once execution was tested on one-minute data.<sup>[6]</sup></p>
+  </div>
+
+  <div class="callout">
+    <span class="lab">The rule this imposes on everything below</span>
+    <p>Any edge concentrated in the first or last print of a session, a day, or a data file is a data-quality artifact until proven otherwise. Test every candidate with the boundary bar excluded. This one check eliminated the strongest-looking result in the study.</p>
+  </div>
+
+  <h3>Test discipline</h3>
+  <ul class="clean measure">
+    <li><strong>Costs are always charged.</strong> $0.35/oz round trip as standard, with a full sensitivity sweep from $0.10 (futures) to $1.00 (wide retail CFD).</li>
+    <li><strong>Bar-by-bar resolution.</strong> Stops and targets are walked forward on M1 so intrabar ordering is never assumed favourably.</li>
+    <li><strong>Split sample.</strong> In-sample 2015&ndash;2021, out-of-sample 2022&ndash;2026. A sign flip between them is treated as failure, not as a regime story.</li>
+    <li><strong>Causal signals only.</strong> Thresholds are computed from trailing data. One promising result &mdash; FOMC-day momentum &mdash; survived only while its detection threshold was fitted on the full sample, and died the moment it was made causal.</li>
+    <li><strong>Returns, not dollars.</strong> Gold went from $1,184 to $4,572 across the sample. Dollar P&amp;L would be dominated by the last two years, so everything is measured in basis points or ATR.</li>
+  </ul>
+</section>
+
+<hr class="div">
+
+<section>
+  <span class="sec-num">Section 03 &middot; The negative results</span>
+  <h2 class="sec">What does not work</h2>
+  <p class="lede">These are the strategies the retail world sells hardest. They were tested honestly, at scale, and reported here whatever the outcome &mdash; a negative result on 1,100 trades is more useful than a positive one on 30.</p>
+
+  <h3>Smart Money Concepts: twenty variants, twenty failures</h3>
+  <div class="measure">
+  <p>The core SMC/ICT mechanic is the liquidity grab: price sweeps a known pool of stops &mdash; the Asian session high or low, the previous day's high or low &mdash; then reverses back through the level, and you trade the failed break. It is a genuinely plausible mechanism and the levels are real. Every combination of reference level, killzone window and direction was tested at a 2&nbsp;R target.</p>
+  </div>
+
+  <div class="tw">
+  <table>
+    <caption>Exhibit 2 &middot; Sweep-and-reclaim, best six of twenty variants tested</caption>
+    <thead><tr><th>Window</th><th>Level faded</th><th class="num">Trades</th><th class="num">Win</th><th class="num">Expectancy</th><th class="num">PF</th></tr></thead>
+    <tbody>
+      <tr><td>Silver bullet 10:00&ndash;11:00</td><td class="name">Prev-day low</td><td class="num">335</td><td class="num">41.8%</td><td class="num neg">&minus;0.026 R</td><td class="num">0.95</td></tr>
+      <tr><td>NY killzone 07:00&ndash;10:00</td><td class="name">Prev-day high</td><td class="num">512</td><td class="num">39.1%</td><td class="num neg">&minus;0.037 R</td><td class="num">0.94</td></tr>
+      <tr><td>London killzone 02:00&ndash;05:00</td><td class="name">Prev-day high</td><td class="num">392</td><td class="num">36.7%</td><td class="num neg">&minus;0.057 R</td><td class="num">0.92</td></tr>
+      <tr><td>Silver bullet 10:00&ndash;11:00</td><td class="name">Asian high</td><td class="num">625</td><td class="num">41.9%</td><td class="num neg">&minus;0.077 R</td><td class="num">0.86</td></tr>
+      <tr><td>London killzone 02:00&ndash;05:00</td><td class="name">Asian high</td><td class="num">1,107</td><td class="num">35.5%</td><td class="num neg">&minus;0.088 R</td><td class="num">0.88</td></tr>
+      <tr><td>London killzone 02:00&ndash;05:00</td><td class="name">Asian low</td><td class="num">1,021</td><td class="num">32.3%</td><td class="num neg">&minus;0.176 R</td><td class="num">0.77</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="measure">
+  <p>The diagnosis matters more than the verdict. Run the same trades at zero cost and the pattern is roughly break-even &mdash; the London Asian-high fade posts a profit factor of 1.06, the NY previous-day-high fade 1.11. The pattern is not random. It is simply <strong>too small to pay for itself</strong>.</p>
+  <p>The reason is mechanical. A reclaim entry sits close to the swept extreme, so the stop is tight: a median of <span class="mono">$3.05</span>, or 0.14&nbsp;ATR. A $0.35 spread against a $3.05 stop is <strong>11.5% of the risk on every single trade</strong>. No 50/50 pattern survives an 11.5% toll. Tightening the stop &mdash; which is what most SMC teaching material advises, in the name of "better R:R" &mdash; makes this strictly worse, because it raises the toll while leaving the edge alone.</p>
+  <p>This lines up with the independent literature. No peer-reviewed study establishes SMC/ICT profitability, and the patterns are defined loosely enough that two traders mark the same chart differently.<sup>[1]</sup> The favourable community backtests circulating &mdash; 61% win rates, profit factors above 2 &mdash; come from discretionary marking on small samples with no cost model, which is exactly the procedure this section was designed to replace.</p>
+  </div>
+
+  <h3>Trading the news direction</h3>
+  <div class="measure">
+  <p>The 08:30 New&nbsp;York release window is the most violent five minutes of the gold day. On Non-Farm Payroll Fridays it prints a median range of <span class="mono">$8.23</span> against <span class="mono">$1.07</span> in a quiet 07:00 window &mdash; <strong>7.7&times;</strong> normal, and 35.1% of the entire day's range compressed into five minutes.</p>
+  <p>The volatility is completely reliable. The direction is not. Measure the first five-minute impulse and ask whether price is still on that side at the close: <strong>50.4%</strong> on NFP days, 48.9% on other days. That is a coin flip, and a coin flip taken at the widest spread of the day is a losing proposition.</p>
+  <p>An apparent exception is instructive. Days with a large 14:00 spike &mdash; FOMC decisions and minutes &mdash; initially showed 57.7% continuation to the close, the strongest news result in the study. That threshold was set from a full-sample quantile. Rebuilt causally, from a trailing median that only uses data available at the time, the effect vanishes: <span class="mono">t&nbsp;=&nbsp;&minus;0.08</span>, with in-sample and out-of-sample halves disagreeing in sign. It was look-ahead bias, not an edge.</p>
+  </div>
+
+  <h3>Everything else that failed</h3>
+  <div class="tw">
+  <table>
+    <caption>Exhibit 3 &middot; The rejection log</caption>
+    <thead><tr><th>Hypothesis</th><th>Result</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td class="name">The Judas swing (fade the first Asian-range sweep)</td><td>Sweeps high first 50.5% / low first 47.9%; opposite side later taken only 40&ndash;44% of the time</td><td><span class="pill dead">No bias</span></td></tr>
+      <tr><td class="name">Prev-day high/low sweep &amp; failure</td><td>PDH swept on 50.4% of days, closes back below on 48.6% of those &mdash; a coin flip</td><td><span class="pill dead">No bias</span></td></tr>
+      <tr><td class="name">Opening-range breakout, 08:00&ndash;11:00 NY</td><td>Best variant &minus;0.002 R; in-sample &minus;0.027, out-of-sample +0.035 &mdash; sign flip</td><td><span class="pill dead">Unstable</span></td></tr>
+      <tr><td class="name">Breakout + 50-day trend filter</td><td>+0.025 R, PF 1.09 &mdash; positive but 74 trades/yr &times; 0.025 R is not a business</td><td><span class="pill warn">Too thin</span></td></tr>
+      <tr><td class="name">Daily trend following (Donchian 20/55, MA crosses)</td><td>All four systems flipped sign between IS and OOS; best total +2.4 R over 11.7 years</td><td><span class="pill dead">Unstable</span></td></tr>
+      <tr><td class="name">26-condition scan for NY-session direction</td><td>Strongest |t| = 2.49 across 26 tests &mdash; within what 26 tests produce by chance</td><td><span class="pill dead">Null</span></td></tr>
+      <tr><td class="name">Weekend gap fade</td><td>97% fill rate, but median gap is $0.33 &mdash; smaller than the spread</td><td><span class="pill dead">Untradeable</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="measure">Sixty-four strategy configurations were run in total. Reporting only the winners from that many attempts is how backtest overfitting is manufactured, so the log above is part of the result.</p>
+</section>
+<hr class="div">
+
+<section>
+  <span class="sec-num">Section 04 &middot; The real structure</span>
+  <h2 class="sec">The clock is the loophole</h2>
+  <p class="lede">Direction is not forecastable. Timing and magnitude are &mdash; overwhelmingly so. This is where the exploitable structure in XAUUSD actually lives.</p>
+
+  <div class="stats">
+    <div class="stat"><span class="k">Volatility, R²</span><span class="v">0.563</span><span class="d">yesterday's ATR predicting today's range</span></div>
+    <div class="stat"><span class="k">Direction, R²</span><span class="v">0.00018</span><span class="d">yesterday's return predicting today's</span></div>
+    <div class="stat"><span class="k">Ratio</span><span class="v">3,160&times;</span><span class="d">how much more forecastable volatility is</span></div>
+    <div class="stat"><span class="k">Range autocorrelation</span><span class="v">+0.80</span><span class="d">at 1-day lag; returns are +0.013</span></div>
+  </div>
+
+  <p class="measure">Every hour of the trading day is not equal, and the inequality is stable enough to build on. Three of the twenty-three hours carry over a fifth of the average day's entire range.</p>
+
+  <figure>
+    <svg viewBox="0 0 920 300" role="img" aria-label="Share of the average day's range by New York hour; 08:00-11:00 carries the most.">
+<text class="axtitle" x="46" y="12">% of the average day's range &#183; hour of day, New York</text>
+<line class="grid" x1="46" y1="236.0" x2="904" y2="236.0"/><text class="tick" x="38" y="239.5" text-anchor="end">0.0%</text><line class="grid" x1="46" y1="181.5" x2="904" y2="181.5"/><text class="tick" x="38" y="185.0" text-anchor="end">1.9%</text><line class="grid" x1="46" y1="127.0" x2="904" y2="127.0"/><text class="tick" x="38" y="130.5" text-anchor="end">3.8%</text><line class="grid" x1="46" y1="72.5" x2="904" y2="72.5"/><text class="tick" x="38" y="76.0" text-anchor="end">5.7%</text><line class="grid" x1="46" y1="18.0" x2="904" y2="18.0"/><text class="tick" x="38" y="21.5" text-anchor="end">7.6%</text><g class="bar"><title>00:00 NY — 2.97% of the average day's range</title><rect x="48.0" y="151.1" width="31.8" height="84.9" rx="2"/></g><text class="tick" x="63.9" y="251" text-anchor="middle">00</text><g class="bar"><title>01:00 NY — 3.76% of the average day's range</title><rect x="83.8" y="128.6" width="31.8" height="107.4" rx="2"/></g><g class="bar"><title>02:00 NY — 4.37% of the average day's range</title><rect x="119.5" y="111.1" width="31.8" height="124.9" rx="2"/></g><text class="tick" x="135.4" y="251" text-anchor="middle">02</text><g class="bar"><title>03:00 NY — 4.66% of the average day's range</title><rect x="155.2" y="102.9" width="31.8" height="133.1" rx="2"/></g><g class="bar"><title>04:00 NY — 4.21% of the average day's range</title><rect x="191.0" y="115.7" width="31.8" height="120.3" rx="2"/></g><text class="tick" x="206.9" y="251" text-anchor="middle">04</text><g class="bar"><title>05:00 NY — 3.86% of the average day's range</title><rect x="226.8" y="125.7" width="31.8" height="110.3" rx="2"/></g><g class="bar"><title>06:00 NY — 3.72% of the average day's range</title><rect x="262.5" y="129.7" width="31.8" height="106.3" rx="2"/></g><text class="tick" x="278.4" y="251" text-anchor="middle">06</text><g class="bar"><title>07:00 NY — 4.28% of the average day's range</title><rect x="298.2" y="113.7" width="31.8" height="122.3" rx="2"/></g><g class="bar lead"><title>08:00 NY — 6.89% of the average day's range</title><rect x="334.0" y="39.1" width="31.8" height="196.9" rx="2"/></g><text class="tick" x="349.9" y="251" text-anchor="middle">08</text><g class="bar lead"><title>09:00 NY — 7.63% of the average day's range</title><rect x="369.8" y="18.0" width="31.8" height="218.0" rx="2"/></g><g class="bar lead"><title>10:00 NY — 7.44% of the average day's range</title><rect x="405.5" y="23.4" width="31.8" height="212.6" rx="2"/></g><text class="tick" x="421.4" y="251" text-anchor="middle">10</text><g class="bar"><title>11:00 NY — 5.59% of the average day's range</title><rect x="441.2" y="76.3" width="31.8" height="159.7" rx="2"/></g><g class="bar"><title>12:00 NY — 4.45% of the average day's range</title><rect x="477.0" y="108.9" width="31.8" height="127.1" rx="2"/></g><text class="tick" x="492.9" y="251" text-anchor="middle">12</text><g class="bar"><title>13:00 NY — 4.20% of the average day's range</title><rect x="512.8" y="116.0" width="31.8" height="120.0" rx="2"/></g><g class="bar"><title>14:00 NY — 3.86% of the average day's range</title><rect x="548.5" y="125.7" width="31.8" height="110.3" rx="2"/></g><text class="tick" x="564.4" y="251" text-anchor="middle">14</text><g class="bar"><title>15:00 NY — 3.45% of the average day's range</title><rect x="584.2" y="137.4" width="31.8" height="98.6" rx="2"/></g><g class="bar"><title>16:00 NY — 2.16% of the average day's range</title><rect x="620.0" y="174.3" width="31.8" height="61.7" rx="2"/></g><text class="tick" x="635.9" y="251" text-anchor="middle">16</text><g class="bar"><title>17:00 NY — 0.23% of the average day's range</title><rect x="655.8" y="229.4" width="31.8" height="6.6" rx="2"/></g><g class="bar"><title>18:00 NY — 3.42% of the average day's range</title><rect x="691.5" y="138.3" width="31.8" height="97.7" rx="2"/></g><text class="tick" x="707.4" y="251" text-anchor="middle">18</text><g class="bar"><title>19:00 NY — 3.16% of the average day's range</title><rect x="727.2" y="145.7" width="31.8" height="90.3" rx="2"/></g><g class="bar"><title>20:00 NY — 4.45% of the average day's range</title><rect x="763.0" y="108.9" width="31.8" height="127.1" rx="2"/></g><text class="tick" x="778.9" y="251" text-anchor="middle">20</text><g class="bar"><title>21:00 NY — 4.73% of the average day's range</title><rect x="798.8" y="100.9" width="31.8" height="135.1" rx="2"/></g><g class="bar"><title>22:00 NY — 3.60% of the average day's range</title><rect x="834.5" y="133.1" width="31.8" height="102.9" rx="2"/></g><text class="tick" x="850.4" y="251" text-anchor="middle">22</text><g class="bar"><title>23:00 NY — 2.90% of the average day's range</title><rect x="870.2" y="153.1" width="31.8" height="82.9" rx="2"/></g><rect class="band s1" x="46.0" y="260" width="71.5" height="18" rx="3"/><text class="bandlab" x="81.8" y="273" text-anchor="middle">ASIA</text><rect class="band s2" x="117.5" y="260" width="214.5" height="18" rx="3"/><text class="bandlab" x="224.8" y="273" text-anchor="middle">LONDON</text><rect class="band s3" x="332.0" y="260" width="321.8" height="18" rx="3"/><text class="bandlab" x="492.9" y="273" text-anchor="middle">NEW YORK</text><rect class="band s1" x="689.5" y="260" width="214.5" height="18" rx="3"/><text class="bandlab" x="796.8" y="273" text-anchor="middle">ASIA</text></svg>
+    <figcaption><b>Exhibit 4 &middot; Where the day's range is made</b>
+    08:00&ndash;11:00 New York carries 21.9% of the average day's range in three hours. The 02:00&ndash;04:00 London open is a clear secondary peak, and 20:00&ndash;21:00 marks the Tokyo open. The quiet hours &mdash; 16:00, 23:00, 00:00 &mdash; run at roughly a third the intensity of the 09:00 peak.</figcaption>
+  </figure>
+
+  <figure>
+    <svg viewBox="0 0 920 250" role="img" aria-label="Share of sessions printing their high and their low in each New York hour.">
+<text class="axtitle" x="46" y="12">% of sessions printing their extreme in this hour</text>
+<line class="grid" x1="46" y1="198.0" x2="904" y2="198.0"/><text class="tick" x="38" y="201.5" text-anchor="end">0%</text><line class="grid" x1="46" y1="108.0" x2="904" y2="108.0"/><text class="tick" x="38" y="111.5" text-anchor="end">5%</text><line class="grid" x1="46" y1="18.0" x2="904" y2="18.0"/><text class="tick" x="38" y="21.5" text-anchor="end">11%</text><g class="bar sHigh"><title>00:00 NY — 1.1% of sessions print their high here</title><rect x="48.0" y="179.6" width="14.9" height="18.4" rx="1.5"/></g><g class="bar sLow"><title>00:00 NY — 1.6% of sessions print their low here</title><rect x="64.9" y="172.0" width="14.9" height="26.0" rx="1.5"/></g><text class="tick" x="63.9" y="213" text-anchor="middle">00</text><g class="bar sHigh"><title>01:00 NY — 2.3% of sessions print their high here</title><rect x="83.8" y="159.1" width="14.9" height="38.9" rx="1.5"/></g><g class="bar sLow"><title>01:00 NY — 2.0% of sessions print their low here</title><rect x="100.6" y="164.6" width="14.9" height="33.4" rx="1.5"/></g><g class="bar sHigh"><title>02:00 NY — 3.4% of sessions print their high here</title><rect x="119.5" y="140.7" width="14.9" height="57.3" rx="1.5"/></g><g class="bar sLow"><title>02:00 NY — 3.2% of sessions print their low here</title><rect x="136.4" y="144.1" width="14.9" height="53.9" rx="1.5"/></g><text class="tick" x="135.4" y="213" text-anchor="middle">02</text><g class="bar sHigh"><title>03:00 NY — 3.9% of sessions print their high here</title><rect x="155.2" y="132.4" width="14.9" height="65.6" rx="1.5"/></g><g class="bar sLow"><title>03:00 NY — 4.1% of sessions print their low here</title><rect x="172.1" y="129.0" width="14.9" height="69.0" rx="1.5"/></g><g class="bar sHigh"><title>04:00 NY — 2.2% of sessions print their high here</title><rect x="191.0" y="161.3" width="14.9" height="36.7" rx="1.5"/></g><g class="bar sLow"><title>04:00 NY — 2.2% of sessions print their low here</title><rect x="207.9" y="161.3" width="14.9" height="36.7" rx="1.5"/></g><text class="tick" x="206.9" y="213" text-anchor="middle">04</text><g class="bar sHigh"><title>05:00 NY — 2.6% of sessions print their high here</title><rect x="226.8" y="155.3" width="14.9" height="42.7" rx="1.5"/></g><g class="bar sLow"><title>05:00 NY — 2.1% of sessions print their low here</title><rect x="243.6" y="163.6" width="14.9" height="34.4" rx="1.5"/></g><g class="bar sHigh"><title>06:00 NY — 1.9% of sessions print their high here</title><rect x="262.5" y="165.8" width="14.9" height="32.2" rx="1.5"/></g><g class="bar sLow"><title>06:00 NY — 2.0% of sessions print their low here</title><rect x="279.4" y="165.3" width="14.9" height="32.7" rx="1.5"/></g><text class="tick" x="278.4" y="213" text-anchor="middle">06</text><g class="bar sHigh"><title>07:00 NY — 2.6% of sessions print their high here</title><rect x="298.2" y="154.1" width="14.9" height="43.9" rx="1.5"/></g><g class="bar sLow"><title>07:00 NY — 2.9% of sessions print their low here</title><rect x="315.1" y="149.7" width="14.9" height="48.3" rx="1.5"/></g><g class="bar sHigh"><title>08:00 NY — 8.1% of sessions print their high here</title><rect x="334.0" y="63.6" width="14.9" height="134.4" rx="1.5"/></g><g class="bar sLow"><title>08:00 NY — 8.2% of sessions print their low here</title><rect x="350.9" y="60.7" width="14.9" height="137.3" rx="1.5"/></g><text class="tick" x="349.9" y="213" text-anchor="middle">08</text><g class="bar sHigh"><title>09:00 NY — 8.4% of sessions print their high here</title><rect x="369.8" y="56.9" width="14.9" height="141.1" rx="1.5"/></g><g class="bar sLow"><title>09:00 NY — 9.2% of sessions print their low here</title><rect x="386.6" y="45.2" width="14.9" height="152.8" rx="1.5"/></g><g class="bar sHigh"><title>10:00 NY — 7.8% of sessions print their high here</title><rect x="405.5" y="67.4" width="14.9" height="130.6" rx="1.5"/></g><g class="bar sLow"><title>10:00 NY — 8.8% of sessions print their low here</title><rect x="422.4" y="51.9" width="14.9" height="146.1" rx="1.5"/></g><text class="tick" x="421.4" y="213" text-anchor="middle">10</text><g class="bar sHigh"><title>11:00 NY — 5.7% of sessions print their high here</title><rect x="441.2" y="103.0" width="14.9" height="95.0" rx="1.5"/></g><g class="bar sLow"><title>11:00 NY — 4.9% of sessions print their low here</title><rect x="458.1" y="116.3" width="14.9" height="81.7" rx="1.5"/></g><g class="bar sHigh"><title>12:00 NY — 4.1% of sessions print their high here</title><rect x="477.0" y="129.7" width="14.9" height="68.3" rx="1.5"/></g><g class="bar sLow"><title>12:00 NY — 3.3% of sessions print their low here</title><rect x="493.9" y="143.6" width="14.9" height="54.4" rx="1.5"/></g><text class="tick" x="492.9" y="213" text-anchor="middle">12</text><g class="bar sHigh"><title>13:00 NY — 4.6% of sessions print their high here</title><rect x="512.8" y="120.9" width="14.9" height="77.1" rx="1.5"/></g><g class="bar sLow"><title>13:00 NY — 4.1% of sessions print their low here</title><rect x="529.6" y="129.7" width="14.9" height="68.3" rx="1.5"/></g><g class="bar sHigh"><title>14:00 NY — 4.2% of sessions print their high here</title><rect x="548.5" y="128.0" width="14.9" height="70.0" rx="1.5"/></g><g class="bar sLow"><title>14:00 NY — 3.8% of sessions print their low here</title><rect x="565.4" y="134.0" width="14.9" height="64.0" rx="1.5"/></g><text class="tick" x="564.4" y="213" text-anchor="middle">14</text><g class="bar sHigh"><title>15:00 NY — 5.2% of sessions print their high here</title><rect x="584.2" y="111.3" width="14.9" height="86.7" rx="1.5"/></g><g class="bar sLow"><title>15:00 NY — 4.0% of sessions print their low here</title><rect x="601.1" y="131.9" width="14.9" height="66.1" rx="1.5"/></g><g class="bar sHigh"><title>16:00 NY — 5.0% of sessions print their high here</title><rect x="620.0" y="114.2" width="14.9" height="83.8" rx="1.5"/></g><g class="bar sLow"><title>16:00 NY — 3.7% of sessions print their low here</title><rect x="636.9" y="136.4" width="14.9" height="61.6" rx="1.5"/></g><text class="tick" x="635.9" y="213" text-anchor="middle">16</text><g class="bar sHigh"><title>17:00 NY — 0.3% of sessions print their high here</title><rect x="655.8" y="193.0" width="14.9" height="5.0" rx="1.5"/></g><g class="bar sLow"><title>17:00 NY — 0.2% of sessions print their low here</title><rect x="672.6" y="194.7" width="14.9" height="3.3" rx="1.5"/></g><g class="bar sHigh"><title>18:00 NY — 8.4% of sessions print their high here</title><rect x="691.5" y="57.4" width="14.9" height="140.6" rx="1.5"/></g><g class="bar sLow"><title>18:00 NY — 10.8% of sessions print their low here</title><rect x="708.4" y="18.0" width="14.9" height="180.0" rx="1.5"/></g><text class="tick" x="707.4" y="213" text-anchor="middle">18</text><g class="bar sHigh"><title>19:00 NY — 4.0% of sessions print their high here</title><rect x="727.2" y="130.7" width="14.9" height="67.3" rx="1.5"/></g><g class="bar sLow"><title>19:00 NY — 3.4% of sessions print their low here</title><rect x="744.1" y="141.4" width="14.9" height="56.6" rx="1.5"/></g><g class="bar sHigh"><title>20:00 NY — 5.2% of sessions print their high here</title><rect x="763.0" y="111.8" width="14.9" height="86.2" rx="1.5"/></g><g class="bar sLow"><title>20:00 NY — 6.5% of sessions print their low here</title><rect x="779.9" y="90.3" width="14.9" height="107.7" rx="1.5"/></g><text class="tick" x="778.9" y="213" text-anchor="middle">20</text><g class="bar sHigh"><title>21:00 NY — 5.1% of sessions print their high here</title><rect x="798.8" y="113.5" width="14.9" height="84.5" rx="1.5"/></g><g class="bar sLow"><title>21:00 NY — 5.0% of sessions print their low here</title><rect x="815.6" y="115.2" width="14.9" height="82.8" rx="1.5"/></g><g class="bar sHigh"><title>22:00 NY — 2.7% of sessions print their high here</title><rect x="834.5" y="152.4" width="14.9" height="45.6" rx="1.5"/></g><g class="bar sLow"><title>22:00 NY — 2.8% of sessions print their low here</title><rect x="851.4" y="151.9" width="14.9" height="46.1" rx="1.5"/></g><text class="tick" x="850.4" y="213" text-anchor="middle">22</text><g class="bar sHigh"><title>23:00 NY — 1.1% of sessions print their high here</title><rect x="870.2" y="179.6" width="14.9" height="18.4" rx="1.5"/></g><g class="bar sLow"><title>23:00 NY — 1.6% of sessions print their low here</title><rect x="887.1" y="171.3" width="14.9" height="26.7" rx="1.5"/></g><rect class="flag" x="689.5" y="14" width="35.8" height="188.0" rx="3"/><text class="note" x="681.5" y="34" text-anchor="end">18:00 reopen — stale print, not an edge</text>
+<g class="legend" transform="translate(46,232)">
+<rect class="sw sHigh" x="0" y="0" width="10" height="10" rx="2"/><text class="tick" x="16" y="9">session high</text>
+<rect class="sw sLow" x="104" y="0" width="10" height="10" rx="2"/><text class="tick" x="120" y="9">session low</text></g></svg>
+    <figcaption><b>Exhibit 5 &middot; When the session high and low get printed</b>
+    Roughly 30% of all session highs and 31% of all session lows form between 08:00 and 12:00 New York &mdash; four hours out of twenty-three, running at 1.8&times; their proportional share. The 18:00 bar is flagged because it is the reopen artifact from Section 02, not a real clustering of extremes.</figcaption>
+  </figure>
+
+  <h3>Gold's return is earned overnight and given back in New York</h3>
+  <div class="measure">
+  <p>This is the central result of the study. Split every session into its three components and compound each one separately, holding gold during that window only, with the reopen print excluded.</p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 920 360" role="img" aria-label="Growth of one dollar held in gold during a single session only, 2015 to 2026.">
+<text class="axtitle" x="48" y="12">growth of $1 held in gold during that session only</text>
+<line class="grid" x1="48" y1="316.0" x2="752" y2="316.0"/><text class="tick" x="40" y="319.5" text-anchor="end">0.7x</text><line class="grid" x1="48" y1="242.0" x2="752" y2="242.0"/><text class="tick" x="40" y="245.5" text-anchor="end">1.6x</text><line class="grid" x1="48" y1="168.0" x2="752" y2="168.0"/><text class="tick" x="40" y="171.5" text-anchor="end">2.4x</text><line class="grid" x1="48" y1="94.0" x2="752" y2="94.0"/><text class="tick" x="40" y="97.5" text-anchor="end">3.3x</text><line class="grid" x1="48" y1="20.0" x2="752" y2="20.0"/><text class="tick" x="40" y="23.5" text-anchor="end">4.1x</text><line class="zero" x1="48" y1="293.9" x2="752" y2="293.9"/><path class="bench" d="M48.0,293.9 L50.7,287.2 L53.4,287.4 L56.1,292.2 L58.8,292.6 L61.5,296.6 L64.2,294.1 L66.9,292.7 L69.6,292.6 L72.3,291.8 L75.0,292.6 L77.7,291.9 L80.4,294.8 L83.1,298.9 L85.8,299.9 L88.5,297.6 L91.2,295.9 L93.9,296.6 L96.6,296.0 L99.2,293.1 L101.9,295.7 L104.6,300.0 L107.3,302.1 L110.0,300.7 L112.7,301.0 L115.4,300.1 L118.1,297.0 L120.8,289.0 L123.5,286.5 L126.2,284.8 L128.9,287.1 L131.6,287.5 L134.3,284.6 L137.0,284.7 L139.7,288.1 L142.4,283.3 L145.1,279.6 L147.8,280.6 L150.5,279.9 L153.2,279.4 L155.9,279.3 L158.6,282.7 L161.3,287.7 L164.0,290.9 L166.7,292.7 L169.4,289.2 L172.1,288.7 L174.8,285.6 L177.5,283.3 L180.2,287.5 L182.9,283.3 L185.6,282.2 L188.3,283.3 L191.0,286.3 L193.7,283.9 L196.4,286.1 L199.0,286.1 L201.7,287.0 L204.4,284.2 L207.1,284.0 L209.8,281.1 L212.5,280.8 L215.2,283.8 L217.9,283.1 L220.6,284.2 L223.3,283.9 L226.0,283.1 L228.7,286.2 L231.4,284.2 L234.1,281.3 L236.8,278.0 L239.5,281.1 L242.2,280.0 L244.9,280.8 L247.6,280.3 L250.3,279.9 L253.0,279.7 L255.7,280.8 L258.4,282.4 L261.1,281.8 L263.8,283.5 L266.5,285.2 L269.2,287.4 L271.9,288.3 L274.6,291.4 L277.3,289.4 L280.0,289.5 L282.7,290.1 L285.4,288.0 L288.1,286.8 L290.8,288.7 L293.5,286.9 L296.2,285.0 L298.9,283.3 L301.5,282.5 L304.2,280.9 L306.9,281.0 L309.6,280.7 L312.3,282.5 L315.0,283.7 L317.7,284.0 L320.4,283.2 L323.1,279.7 L325.8,278.5 L328.5,275.1 L331.2,273.1 L333.9,271.2 L336.6,269.0 L339.3,268.4 L342.0,270.7 L344.7,272.6 L347.4,271.1 L350.1,270.6 L352.8,273.4 L355.5,273.9 L358.2,273.9 L360.9,268.2 L363.6,269.0 L366.3,269.4 L369.0,265.0 L371.7,263.1 L374.4,259.1 L377.1,252.8 L379.8,253.9 L382.5,253.0 L385.2,255.7 L387.9,251.4 L390.6,248.3 L393.3,245.8 L396.0,234.0 L398.7,232.4 L401.3,234.8 L404.0,235.2 L406.7,240.7 L409.4,239.5 L412.1,237.7 L414.8,240.0 L417.5,240.7 L420.2,241.5 L422.9,242.8 L425.6,243.1 L428.3,244.9 L431.0,246.4 L433.7,253.1 L436.4,251.8 L439.1,247.7 L441.8,248.2 L444.5,242.0 L447.2,240.2 L449.9,249.7 L452.6,248.0 L455.3,246.5 L458.0,246.4 L460.7,248.3 L463.4,246.6 L466.1,246.7 L468.8,252.0 L471.5,250.0 L474.2,247.6 L476.9,245.9 L479.6,252.2 L482.3,250.0 L485.0,247.8 L487.7,248.6 L490.4,250.3 L493.1,244.8 L495.8,240.0 L498.5,239.7 L501.1,236.2 L503.8,242.2 L506.5,244.6 L509.2,244.5 L511.9,245.2 L514.6,246.7 L517.3,253.3 L520.0,254.3 L522.7,249.2 L525.4,253.1 L528.1,255.6 L530.8,258.3 L533.5,253.8 L536.2,259.3 L538.9,257.6 L541.6,255.6 L544.3,252.4 L547.0,252.2 L549.7,246.7 L552.4,241.3 L555.1,246.4 L557.8,247.5 L560.5,245.1 L563.2,243.4 L565.9,246.6 L568.6,246.5 L571.3,245.9 L574.0,246.4 L576.7,250.2 L579.4,242.4 L582.1,243.3 L584.8,237.1 L587.5,238.3 L590.2,235.6 L592.9,241.4 L595.6,239.1 L598.3,242.4 L601.0,239.1 L603.6,225.8 L606.3,219.8 L609.0,224.9 L611.7,219.9 L614.4,224.5 L617.1,224.1 L619.8,224.1 L622.5,214.9 L625.2,218.8 L627.9,215.1 L630.6,211.1 L633.3,211.7 L636.0,201.9 L638.7,205.3 L641.4,198.0 L644.1,207.0 L646.8,202.6 L649.5,202.8 L652.2,203.7 L654.9,200.0 L657.6,194.6 L660.3,189.0 L663.0,189.4 L665.7,194.6 L668.4,169.8 L671.1,168.9 L673.8,172.0 L676.5,168.7 L679.2,167.8 L681.9,170.4 L684.6,166.6 L687.3,168.1 L690.0,170.7 L692.7,159.9 L695.4,150.1 L698.1,139.5 L700.8,121.7 L703.4,123.3 L706.1,117.1 L708.8,115.6 L711.5,99.6 L714.2,93.8 L716.9,67.0 L719.6,50.2 L722.3,44.5 L725.0,31.5 L727.7,20.0 L730.4,36.1 L733.1,41.7 L735.8,50.3 L738.5,63.2 L741.2,81.6 L743.9,81.5 L746.6,81.0 L749.3,55.8 L752.0,42.4"/><text class="endlab bench-t" x="762" y="46.4">Buy &amp; hold 3.88x</text><path class="line c1" d="M48.0,293.7 L50.7,292.8 L53.4,293.4 L56.1,291.5 L58.8,289.3 L61.5,287.7 L64.2,288.5 L66.9,288.9 L69.6,288.9 L72.3,289.3 L75.0,289.3 L77.7,289.0 L80.4,290.3 L83.1,292.3 L85.8,293.5 L88.5,293.0 L91.2,291.5 L93.9,291.5 L96.6,291.9 L99.2,291.0 L101.9,290.1 L104.6,288.7 L107.3,287.8 L110.0,287.1 L112.7,285.7 L115.4,285.3 L118.1,284.8 L120.8,284.8 L123.5,283.6 L126.2,284.2 L128.9,285.8 L131.6,286.1 L134.3,284.3 L137.0,284.2 L139.7,284.1 L142.4,284.0 L145.1,277.8 L147.8,277.0 L150.5,277.7 L153.2,277.6 L155.9,277.1 L158.6,276.6 L161.3,271.0 L164.0,270.5 L166.7,271.1 L169.4,266.6 L172.1,265.5 L174.8,266.1 L177.5,266.6 L180.2,268.2 L182.9,266.8 L185.6,266.3 L188.3,267.4 L191.0,266.8 L193.7,265.8 L196.4,266.5 L199.0,265.0 L201.7,265.9 L204.4,266.2 L207.1,267.0 L209.8,266.1 L212.5,266.4 L215.2,266.4 L217.9,266.1 L220.6,267.3 L223.3,267.2 L226.0,266.6 L228.7,266.8 L231.4,265.6 L234.1,265.4 L236.8,265.0 L239.5,263.6 L242.2,263.5 L244.9,263.4 L247.6,264.3 L250.3,263.8 L253.0,264.2 L255.7,264.0 L258.4,264.8 L261.1,265.5 L263.8,265.7 L266.5,267.1 L269.2,267.4 L271.9,268.9 L274.6,269.1 L277.3,269.0 L280.0,269.3 L282.7,268.4 L285.4,269.3 L288.1,268.2 L290.8,269.5 L293.5,269.2 L296.2,268.2 L298.9,267.1 L301.5,265.7 L304.2,265.9 L306.9,266.6 L309.6,266.2 L312.3,265.9 L315.0,266.2 L317.7,266.8 L320.4,266.8 L323.1,266.8 L325.8,266.6 L328.5,263.7 L331.2,262.9 L333.9,264.8 L336.6,264.9 L339.3,265.2 L342.0,265.4 L344.7,264.9 L347.4,266.2 L350.1,265.9 L352.8,266.3 L355.5,266.2 L358.2,265.6 L360.9,263.6 L363.6,263.8 L366.3,265.9 L369.0,264.8 L371.7,263.6 L374.4,262.9 L377.1,263.6 L379.8,265.6 L382.5,263.6 L385.2,261.9 L387.9,261.8 L390.6,261.8 L393.3,261.8 L396.0,259.5 L398.7,258.4 L401.3,258.1 L404.0,257.5 L406.7,260.8 L409.4,260.0 L412.1,260.9 L414.8,258.1 L417.5,258.3 L420.2,257.6 L422.9,256.8 L425.6,256.7 L428.3,257.5 L431.0,256.3 L433.7,256.0 L436.4,256.8 L439.1,256.8 L441.8,256.9 L444.5,255.2 L447.2,255.8 L449.9,256.6 L452.6,256.0 L455.3,255.5 L458.0,255.3 L460.7,256.7 L463.4,256.4 L466.1,255.1 L468.8,254.3 L471.5,255.2 L474.2,253.2 L476.9,254.4 L479.6,253.0 L482.3,251.8 L485.0,250.9 L487.7,251.2 L490.4,251.8 L493.1,252.0 L495.8,249.7 L498.5,252.1 L501.1,253.1 L503.8,254.1 L506.5,254.7 L509.2,254.7 L511.9,255.7 L514.6,256.6 L517.3,256.7 L520.0,257.6 L522.7,255.8 L525.4,256.9 L528.1,257.1 L530.8,259.2 L533.5,259.7 L536.2,259.0 L538.9,260.5 L541.6,260.7 L544.3,258.3 L547.0,258.2 L549.7,254.8 L552.4,254.6 L555.1,253.9 L557.8,254.9 L560.5,255.2 L563.2,255.5 L565.9,256.0 L568.6,255.5 L571.3,254.2 L574.0,254.3 L576.7,255.6 L579.4,254.5 L582.1,254.8 L584.8,251.7 L587.5,250.6 L590.2,248.8 L592.9,248.8 L595.6,247.8 L598.3,248.3 L601.0,247.6 L603.6,245.2 L606.3,243.3 L609.0,246.2 L611.7,244.5 L614.4,245.8 L617.1,246.3 L619.8,247.1 L622.5,245.5 L625.2,246.3 L627.9,245.2 L630.6,245.6 L633.3,246.5 L636.0,243.9 L638.7,244.6 L641.4,240.9 L644.1,244.0 L646.8,243.9 L649.5,243.3 L652.2,240.1 L654.9,239.2 L657.6,237.9 L660.3,235.5 L663.0,237.9 L665.7,236.1 L668.4,221.9 L671.1,225.9 L673.8,229.4 L676.5,230.2 L679.2,229.4 L681.9,232.1 L684.6,231.2 L687.3,231.5 L690.0,231.8 L692.7,232.8 L695.4,232.5 L698.1,228.7 L700.8,222.2 L703.4,220.9 L706.1,216.9 L708.8,219.5 L711.5,216.7 L714.2,215.6 L716.9,206.5 L719.6,196.0 L722.3,193.4 L725.0,193.4 L727.7,188.5 L730.4,191.1 L733.1,191.6 L735.8,200.2 L738.5,200.8 L741.2,206.3 L743.9,209.1 L746.6,206.5 L749.3,202.5 L752.0,204.7"><title>Asia only</title></path><circle class="dot c1" cx="752.0" cy="204.7" r="4"/><path class="line c2" d="M48.0,294.7 L50.7,293.5 L53.4,293.8 L56.1,295.9 L58.8,295.8 L61.5,297.5 L64.2,296.8 L66.9,297.9 L69.6,297.2 L72.3,296.6 L75.0,297.8 L77.7,297.6 L80.4,299.7 L83.1,299.2 L85.8,301.1 L88.5,300.2 L91.2,302.2 L93.9,303.5 L96.6,305.0 L99.2,304.6 L101.9,303.7 L104.6,305.0 L107.3,305.7 L110.0,306.4 L112.7,307.4 L115.4,308.4 L118.1,307.7 L120.8,303.7 L123.5,302.8 L126.2,302.2 L128.9,301.8 L131.6,301.6 L134.3,300.7 L137.0,300.1 L139.7,300.3 L142.4,299.7 L145.1,299.8 L147.8,300.5 L150.5,299.5 L153.2,299.4 L155.9,298.9 L158.6,298.4 L161.3,301.6 L164.0,302.9 L166.7,304.5 L169.4,306.0 L172.1,306.3 L174.8,304.8 L177.5,303.4 L180.2,304.2 L182.9,303.3 L185.6,303.5 L188.3,303.6 L191.0,303.6 L193.7,302.6 L196.4,303.6 L199.0,303.7 L201.7,304.0 L204.4,303.9 L207.1,303.3 L209.8,302.4 L212.5,302.3 L215.2,304.3 L217.9,302.9 L220.6,303.3 L223.3,303.7 L226.0,303.1 L228.7,303.4 L231.4,303.0 L234.1,302.7 L236.8,300.9 L239.5,301.8 L242.2,302.3 L244.9,302.4 L247.6,303.0 L250.3,303.0 L253.0,303.0 L255.7,303.6 L258.4,304.1 L261.1,302.8 L263.8,303.4 L266.5,303.0 L269.2,304.1 L271.9,303.8 L274.6,304.5 L277.3,303.9 L280.0,303.7 L282.7,303.8 L285.4,303.5 L288.1,302.4 L290.8,302.0 L293.5,302.1 L296.2,301.7 L298.9,301.6 L301.5,301.7 L304.2,301.8 L306.9,301.3 L309.6,301.4 L312.3,302.0 L315.0,302.7 L317.7,302.2 L320.4,302.4 L323.1,301.4 L325.8,300.7 L328.5,300.4 L331.2,300.8 L333.9,299.4 L336.6,297.7 L339.3,299.1 L342.0,298.3 L344.7,299.1 L347.4,297.9 L350.1,297.8 L352.8,299.0 L355.5,299.3 L358.2,298.1 L360.9,297.8 L363.6,298.4 L366.3,298.3 L369.0,297.6 L371.7,295.2 L374.4,292.8 L377.1,290.1 L379.8,288.9 L382.5,288.8 L385.2,289.4 L387.9,289.1 L390.6,288.3 L393.3,287.4 L396.0,287.0 L398.7,286.9 L401.3,287.6 L404.0,288.2 L406.7,289.3 L409.4,287.1 L412.1,285.2 L414.8,287.9 L417.5,288.5 L420.2,288.9 L422.9,290.2 L425.6,292.1 L428.3,291.8 L431.0,292.6 L433.7,293.6 L436.4,294.7 L439.1,292.9 L441.8,293.6 L444.5,293.5 L447.2,293.7 L449.9,296.1 L452.6,295.1 L455.3,294.7 L458.0,295.1 L460.7,294.5 L463.4,294.2 L466.1,294.8 L468.8,296.4 L471.5,296.0 L474.2,296.0 L476.9,295.2 L479.6,295.8 L482.3,296.4 L485.0,295.9 L487.7,296.8 L490.4,297.6 L493.1,296.6 L495.8,297.5 L498.5,300.1 L501.1,298.8 L503.8,299.2 L506.5,298.0 L509.2,298.1 L511.9,297.8 L514.6,298.8 L517.3,300.6 L520.0,300.7 L522.7,299.1 L525.4,300.6 L528.1,301.5 L530.8,299.8 L533.5,299.6 L536.2,301.4 L538.9,302.0 L541.6,302.0 L544.3,301.1 L547.0,301.0 L549.7,301.8 L552.4,301.4 L555.1,302.1 L557.8,301.9 L560.5,300.8 L563.2,299.9 L565.9,300.4 L568.6,299.7 L571.3,300.1 L574.0,300.2 L576.7,300.3 L579.4,297.8 L582.1,299.9 L584.8,300.0 L587.5,301.0 L590.2,300.6 L592.9,301.8 L595.6,300.9 L598.3,302.2 L601.0,301.4 L603.6,301.4 L606.3,300.9 L609.0,302.5 L611.7,302.9 L614.4,303.1 L617.1,304.0 L619.8,302.5 L622.5,302.0 L625.2,302.5 L627.9,302.7 L630.6,300.3 L633.3,299.9 L636.0,298.9 L638.7,298.0 L641.4,297.4 L644.1,297.6 L646.8,295.3 L649.5,295.5 L652.2,296.2 L654.9,295.3 L657.6,293.8 L660.3,292.9 L663.0,292.5 L665.7,293.0 L668.4,290.9 L671.1,290.3 L673.8,291.5 L676.5,290.4 L679.2,290.4 L681.9,291.2 L684.6,290.8 L687.3,290.8 L690.0,292.2 L692.7,291.5 L695.4,290.0 L698.1,289.1 L700.8,286.6 L703.4,288.8 L706.1,287.4 L708.8,285.5 L711.5,284.3 L714.2,283.4 L716.9,282.5 L719.6,284.5 L722.3,284.3 L725.0,284.0 L727.7,283.0 L730.4,283.4 L733.1,282.5 L735.8,283.6 L738.5,281.7 L741.2,281.3 L743.9,280.6 L746.6,281.3 L749.3,278.7 L752.0,276.6"><title>London only</title></path><circle class="dot c2" cx="752.0" cy="276.6" r="4"/><path class="line c3" d="M48.0,293.0 L50.7,288.4 L53.4,287.5 L56.1,292.8 L58.8,295.7 L61.5,299.9 L64.2,297.5 L66.9,295.7 L69.6,296.5 L72.3,296.2 L75.0,296.0 L77.7,295.8 L80.4,296.3 L83.1,299.0 L85.8,297.0 L88.5,296.2 L91.2,294.3 L93.9,293.4 L96.6,290.2 L99.2,288.4 L101.9,293.2 L104.6,297.7 L107.3,300.3 L110.0,299.0 L112.7,299.8 L115.4,298.5 L118.1,296.9 L120.8,293.5 L123.5,292.8 L126.2,291.0 L128.9,291.9 L131.6,292.3 L134.3,292.2 L137.0,292.9 L139.7,296.0 L142.4,292.5 L145.1,294.5 L147.8,295.0 L150.5,294.7 L153.2,294.8 L155.9,295.9 L158.6,300.0 L161.3,304.6 L164.0,307.0 L166.7,307.3 L169.4,306.1 L172.1,306.5 L174.8,305.4 L177.5,304.6 L180.2,306.1 L182.9,305.0 L185.6,304.3 L188.3,303.8 L191.0,306.7 L193.7,306.5 L196.4,307.0 L199.0,308.2 L201.7,308.2 L204.4,306.1 L207.1,306.0 L209.8,305.5 L212.5,304.7 L215.2,305.2 L217.9,306.3 L220.6,306.0 L223.3,305.8 L226.0,306.3 L228.7,308.1 L231.4,307.7 L234.1,306.0 L236.8,305.8 L239.5,307.9 L242.2,306.8 L244.9,307.7 L247.6,306.3 L250.3,306.6 L253.0,306.2 L255.7,306.5 L258.4,306.8 L261.1,307.4 L263.8,308.2 L266.5,309.2 L269.2,309.6 L271.9,309.7 L274.6,311.8 L277.3,310.9 L280.0,311.5 L282.7,312.2 L285.4,310.6 L288.1,311.6 L290.8,312.8 L293.5,311.8 L296.2,311.6 L298.9,311.3 L301.5,311.7 L304.2,310.5 L306.9,310.7 L309.6,310.7 L312.3,312.0 L315.0,312.3 L317.7,312.9 L320.4,312.7 L323.1,311.3 L325.8,311.4 L328.5,310.2 L331.2,309.7 L333.9,308.9 L336.6,309.2 L339.3,308.2 L342.0,310.5 L344.7,311.4 L347.4,311.1 L350.1,311.2 L352.8,311.9 L355.5,312.1 L358.2,313.1 L360.9,312.7 L363.6,312.6 L366.3,312.2 L369.0,310.7 L371.7,313.2 L374.4,312.7 L377.1,310.3 L379.8,310.3 L382.5,311.4 L385.2,313.5 L387.9,311.5 L390.6,310.5 L393.3,310.0 L396.0,306.1 L398.7,306.1 L401.3,307.2 L404.0,307.3 L406.7,307.5 L409.4,309.3 L412.1,309.5 L414.8,310.2 L417.5,309.8 L420.2,310.3 L422.9,311.2 L425.6,310.6 L428.3,311.7 L431.0,312.7 L433.7,315.9 L436.4,313.9 L439.1,313.1 L441.8,312.7 L444.5,310.6 L447.2,309.2 L449.9,311.8 L452.6,312.5 L455.3,312.2 L458.0,312.1 L460.7,312.8 L463.4,312.4 L466.1,312.7 L468.8,314.8 L471.5,313.6 L474.2,313.5 L476.9,312.7 L479.6,316.0 L482.3,315.2 L485.0,314.9 L487.7,314.4 L490.4,314.1 L493.1,312.1 L495.8,311.8 L498.5,308.6 L501.1,307.4 L503.8,309.5 L506.5,311.6 L509.2,311.6 L511.9,311.6 L514.6,311.0 L517.3,313.4 L520.0,313.3 L522.7,312.8 L525.4,312.9 L528.1,313.2 L530.8,314.8 L533.5,312.3 L536.2,314.2 L538.9,311.7 L541.6,310.0 L544.3,310.3 L547.0,310.2 L549.7,308.8 L552.4,306.4 L555.1,309.1 L557.8,309.2 L560.5,308.6 L563.2,308.4 L565.9,309.7 L568.6,310.8 L571.3,311.0 L574.0,311.2 L576.7,313.3 L579.4,311.6 L582.1,310.2 L584.8,308.5 L587.5,309.1 L590.2,309.4 L592.9,311.4 L595.6,311.8 L598.3,312.2 L601.0,311.5 L603.6,306.5 L606.3,306.1 L609.0,305.3 L611.7,303.8 L614.4,305.6 L617.1,304.3 L619.8,305.2 L622.5,302.0 L625.2,303.0 L627.9,301.4 L630.6,301.5 L633.3,301.7 L636.0,299.8 L638.7,301.6 L641.4,300.9 L644.1,302.8 L646.8,303.2 L649.5,303.7 L652.2,305.3 L654.9,305.0 L657.6,304.7 L660.3,304.4 L663.0,304.1 L665.7,306.5 L668.4,305.8 L671.1,303.2 L673.8,301.5 L676.5,301.6 L679.2,302.4 L681.9,301.7 L684.6,301.6 L687.3,302.0 L690.0,301.9 L692.7,298.1 L695.4,296.4 L698.1,295.7 L700.8,295.1 L703.4,295.0 L706.1,296.8 L708.8,296.3 L711.5,294.1 L714.2,295.4 L716.9,293.6 L719.6,295.4 L722.3,296.0 L725.0,295.6 L727.7,295.6 L730.4,297.0 L733.1,298.6 L735.8,296.0 L738.5,301.4 L741.2,304.2 L743.9,303.3 L746.6,304.2 L749.3,302.3 L752.0,300.0"><title>New York only</title></path><circle class="dot c3" cx="752.0" cy="300.0" r="4"/><text class="endlab c1-t" x="762" y="208.7">Asia only 2.02x</text><text class="endlab c2-t" x="762" y="280.6">London only 1.20x</text><text class="endlab c3-t" x="762" y="304.0">New York only 0.93x</text><text class="tick" x="48.0" y="332" text-anchor="middle">2015</text><text class="tick" x="169.4" y="332" text-anchor="middle">2017</text><text class="tick" x="301.5" y="332" text-anchor="middle">2019</text><text class="tick" x="422.9" y="332" text-anchor="middle">2021</text><text class="tick" x="549.7" y="332" text-anchor="middle">2023</text><text class="tick" x="652.2" y="332" text-anchor="middle">2025</text></svg>
+    <figcaption><b>Exhibit 6 &middot; One dollar held in gold, by session only, 2015&ndash;2026</b>
+    Asia-only exposure roughly doubles across the sample while New&nbsp;York-only exposure ends below where it started &mdash; despite New&nbsp;York carrying by far the most volatility. The dashed line is continuous buy-and-hold for reference. Direct labels carry the ending multiple for each series.</figcaption>
+  </figure>
+
+  <div class="tw">
+  <table>
+    <caption>Exhibit 7 &middot; Risk and return by session exposure, 11.7 years</caption>
+    <thead><tr><th>Exposure</th><th class="num">Market hours</th><th class="num">Return p.a.</th><th class="num">Volatility</th><th class="num">Sharpe</th><th class="num">Max drawdown</th></tr></thead>
+    <tbody>
+      <tr><td class="name">Buy &amp; hold (all sessions)</td><td class="num">23</td><td class="num">7.69%</td><td class="num">15.6%</td><td class="num">0.55</td><td class="num neg">&minus;28.3%</td></tr>
+      <tr><td class="name">Asia only &mdash; 18:05&ndash;02:00</td><td class="num">8</td><td class="num">6.95%</td><td class="num">7.1%</td><td class="num pos">0.98</td><td class="num">&minus;13.2%</td></tr>
+      <tr><td class="name">London only &mdash; 02:00&ndash;08:00</td><td class="num">6</td><td class="num">1.80%</td><td class="num">6.5%</td><td class="num">0.31</td><td class="num">&minus;21.8%</td></tr>
+      <tr><td class="name">New York only &mdash; 08:00&ndash;17:00</td><td class="num">9</td><td class="num neg">&minus;0.98%</td><td class="num">11.4%</td><td class="num neg">&minus;0.03</td><td class="num neg">&minus;30.8%</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="measure">
+  <p>The 08:00&ndash;12:00 New&nbsp;York window spans 60.7% of the average daily range and delivers <em>none</em> of the return; the Asian session spans 48% of it and delivers all of it. The Asian drift measures <span class="mono">+2.59&nbsp;bp</span> per session with <span class="mono">t&nbsp;=&nbsp;3.00</span> (p&nbsp;=&nbsp;0.0027) and is positive in 10 of 12 calendar years; split into thirds it runs +2.74, +0.74 and +4.55&nbsp;bp. The 2019&ndash;2022 stretch is weak enough to be honest about &mdash; this is a real effect, not a metronome.</p>
+  <p>It is also not unique to gold, which is a point in its favour. The overnight drift is one of the most durable anomalies in finance: equity index returns accrue almost entirely outside the cash session, and the New&nbsp;York Fed attributes the pattern to dealer inventory management &mdash; intermediaries absorb order imbalances into the close and are compensated for carrying that risk through the illiquid hours.<sup>[5]</sup> Gold has the same dealer structure and the same overnight handoff between Asian physical demand and Western futures positioning. A mechanism that already explains the effect elsewhere is a far better reason to trust it than a backtest alone.</p>
+  </div>
+
+  <h3>Seasonality, and a volatility regime that changed everything</h3>
+
+  <figure>
+    <svg viewBox="0 0 920 210" role="img" aria-label="Mean monthly return of gold by calendar month, 2015 to 2026.">
+<text class="axtitle" x="46" y="12">mean monthly return, % (11 full years)</text><line class="zero" x1="46" y1="96.0" x2="904" y2="96.0"/><text class="tick" x="38" y="173.5" text-anchor="end">-4%</text><text class="tick" x="38" y="25.5" text-anchor="end">+4%</text><g class="bar pos"><title>Jan: mean monthly return +3.77%, 67% of years positive</title><rect x="52.0" y="22.0" width="59.5" height="74.0" rx="2"/></g><text class="barval" x="81.8" y="16.0" text-anchor="middle">+3.8</text><text class="tick" x="81.8" y="188" text-anchor="middle">Jan</text><g class="bar pos"><title>Feb: mean monthly return +0.89%, 50% of years positive</title><rect x="123.5" y="78.5" width="59.5" height="17.5" rx="2"/></g><text class="barval" x="153.2" y="72.5" text-anchor="middle">+0.9</text><text class="tick" x="153.2" y="188" text-anchor="middle">Feb</text><g class="bar pos"><title>Mar: mean monthly return +0.85%, 50% of years positive</title><rect x="195.0" y="79.3" width="59.5" height="16.7" rx="2"/></g><text class="barval" x="224.8" y="73.3" text-anchor="middle">+0.8</text><text class="tick" x="224.8" y="188" text-anchor="middle">Mar</text><g class="bar pos"><title>Apr: mean monthly return +1.76%, 67% of years positive</title><rect x="266.5" y="61.5" width="59.5" height="34.5" rx="2"/></g><text class="barval" x="296.2" y="55.5" text-anchor="middle">+1.8</text><text class="tick" x="296.2" y="188" text-anchor="middle">Apr</text><g class="bar pos"><title>May: mean monthly return +0.06%, 58% of years positive</title><rect x="338.0" y="94.8" width="59.5" height="1.2" rx="2"/></g><text class="barval" x="367.8" y="88.8" text-anchor="middle">+0.1</text><text class="tick" x="367.8" y="188" text-anchor="middle">May</text><g class="bar neg"><title>Jun: mean monthly return -0.80%, 33% of years positive</title><rect x="409.5" y="96.0" width="59.5" height="15.7" rx="2"/></g><text class="barval" x="439.2" y="124.7" text-anchor="middle">-0.8</text><text class="tick" x="439.2" y="188" text-anchor="middle">Jun</text><g class="bar pos"><title>Jul: mean monthly return +1.25%, 67% of years positive</title><rect x="481.0" y="71.5" width="59.5" height="24.5" rx="2"/></g><text class="barval" x="510.8" y="65.5" text-anchor="middle">+1.2</text><text class="tick" x="510.8" y="188" text-anchor="middle">Jul</text><g class="bar pos"><title>Aug: mean monthly return +1.90%, 50% of years positive</title><rect x="552.5" y="58.7" width="59.5" height="37.3" rx="2"/></g><text class="barval" x="582.2" y="52.7" text-anchor="middle">+1.9</text><text class="tick" x="582.2" y="188" text-anchor="middle">Aug</text><g class="bar neg"><title>Sep: mean monthly return -0.57%, 27% of years positive</title><rect x="624.0" y="96.0" width="59.5" height="11.2" rx="2"/></g><text class="barval" x="653.8" y="120.2" text-anchor="middle">-0.6</text><text class="tick" x="653.8" y="188" text-anchor="middle">Sep</text><g class="bar pos"><title>Oct: mean monthly return +1.67%, 64% of years positive</title><rect x="695.5" y="63.2" width="59.5" height="32.8" rx="2"/></g><text class="barval" x="725.2" y="57.2" text-anchor="middle">+1.7</text><text class="tick" x="725.2" y="188" text-anchor="middle">Oct</text><g class="bar neg"><title>Nov: mean monthly return -0.90%, 46% of years positive</title><rect x="767.0" y="96.0" width="59.5" height="17.7" rx="2"/></g><text class="barval" x="796.8" y="126.7" text-anchor="middle">-0.9</text><text class="tick" x="796.8" y="188" text-anchor="middle">Nov</text><g class="bar pos"><title>Dec: mean monthly return +2.17%, 73% of years positive</title><rect x="838.5" y="53.4" width="59.5" height="42.6" rx="2"/></g><text class="barval" x="868.2" y="47.4" text-anchor="middle">+2.2</text><text class="tick" x="868.2" y="188" text-anchor="middle">Dec</text></svg>
+    <figcaption><b>Exhibit 8 &middot; Mean return by calendar month, 11 full years</b>
+    January is the strongest month at +3.8% with two-thirds of years positive; December, August and October follow. June, September and November are the negative months. Sample size is 11&ndash;12 observations per month, which is far too thin to trade on its own &mdash; treat it as a tiebreaker, not a signal.</figcaption>
+  </figure>
+
+  <div class="measure">
+  <p>The day-of-week pattern is more robust and matches the published literature: <strong>Friday is the strongest day</strong> (+0.086% mean, 55.7% positive, <span class="mono">t&nbsp;=&nbsp;1.95</span>), Monday the flattest at 50.5%. The weekly high forms on a Friday 27.4% of the time while Sunday and Monday together produce 33.7% of weekly lows &mdash; an early-week low, late-week high rhythm consistent with the Friday effect documented across Tokyo, London and New&nbsp;York gold markets.<sup>[3]</sup></p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 920 190" role="img" aria-label="Average daily range of XAUUSD in dollars per ounce by year, 2015 to 2026.">
+<text class="axtitle" x="46" y="12">average daily range, $ per ounce</text><line class="grid" x1="46" y1="150.0" x2="904" y2="150.0"/><text class="tick" x="38" y="153.5" text-anchor="end">$0</text><line class="grid" x1="46" y1="84.0" x2="904" y2="84.0"/><text class="tick" x="38" y="87.5" text-anchor="end">$64</text><line class="grid" x1="46" y1="18.0" x2="904" y2="18.0"/><text class="tick" x="38" y="21.5" text-anchor="end">$128</text><g class="bar"><title>2015: average daily range $15.8 (1.36% of price)</title><rect x="50.0" y="133.8" width="63.5" height="16.2" rx="2"/></g><text class="tick" x="81.8" y="165" text-anchor="middle">15</text><text class="barval" x="81.8" y="128.8" text-anchor="middle">16</text><g class="bar"><title>2016: average daily range $18.3 (1.47% of price)</title><rect x="121.5" y="131.2" width="63.5" height="18.8" rx="2"/></g><text class="tick" x="153.2" y="165" text-anchor="middle">16</text><text class="barval" x="153.2" y="126.2" text-anchor="middle">18</text><g class="bar"><title>2017: average daily range $12.5 (0.99% of price)</title><rect x="193.0" y="137.2" width="63.5" height="12.8" rx="2"/></g><text class="tick" x="224.8" y="165" text-anchor="middle">17</text><text class="barval" x="224.8" y="132.2" text-anchor="middle">12</text><g class="bar"><title>2018: average daily range $12.3 (0.97% of price)</title><rect x="264.5" y="137.4" width="63.5" height="12.6" rx="2"/></g><text class="tick" x="296.2" y="165" text-anchor="middle">18</text><text class="barval" x="296.2" y="132.4" text-anchor="middle">12</text><g class="bar"><title>2019: average daily range $15.5 (1.10% of price)</title><rect x="336.0" y="134.1" width="63.5" height="15.9" rx="2"/></g><text class="tick" x="367.8" y="165" text-anchor="middle">19</text><text class="barval" x="367.8" y="129.1" text-anchor="middle">16</text><g class="bar"><title>2020: average daily range $30.7 (1.74% of price)</title><rect x="407.5" y="118.5" width="63.5" height="31.5" rx="2"/></g><text class="tick" x="439.2" y="165" text-anchor="middle">20</text><text class="barval" x="439.2" y="113.5" text-anchor="middle">31</text><g class="bar"><title>2021: average daily range $23.9 (1.33% of price)</title><rect x="479.0" y="125.4" width="63.5" height="24.6" rx="2"/></g><text class="tick" x="510.8" y="165" text-anchor="middle">21</text><text class="barval" x="510.8" y="120.4" text-anchor="middle">24</text><g class="bar"><title>2022: average daily range $25.7 (1.42% of price)</title><rect x="550.5" y="123.6" width="63.5" height="26.4" rx="2"/></g><text class="tick" x="582.2" y="165" text-anchor="middle">22</text><text class="barval" x="582.2" y="118.6" text-anchor="middle">26</text><g class="bar"><title>2023: average daily range $23.4 (1.20% of price)</title><rect x="622.0" y="126.0" width="63.5" height="24.0" rx="2"/></g><text class="tick" x="653.8" y="165" text-anchor="middle">23</text><text class="barval" x="653.8" y="121.0" text-anchor="middle">23</text><g class="bar"><title>2024: average daily range $33.2 (1.38% of price)</title><rect x="693.5" y="115.9" width="63.5" height="34.1" rx="2"/></g><text class="tick" x="725.2" y="165" text-anchor="middle">24</text><text class="barval" x="725.2" y="110.9" text-anchor="middle">33</text><g class="bar"><title>2025: average daily range $60.8 (1.73% of price)</title><rect x="765.0" y="87.5" width="63.5" height="62.5" rx="2"/></g><text class="tick" x="796.8" y="165" text-anchor="middle">25</text><text class="barval" x="796.8" y="82.5" text-anchor="middle">61</text><g class="bar"><title>2026: average daily range $128.5 (2.78% of price)</title><rect x="836.5" y="18.0" width="63.5" height="132.0" rx="2"/></g><text class="tick" x="868.2" y="165" text-anchor="middle">26</text><text class="barval" x="868.2" y="13.0" text-anchor="middle">128</text></svg>
+    <figcaption><b>Exhibit 9 &middot; Average daily range, dollars per ounce</b>
+    From $12.31 in 2018 to $128.47 in 2026 &mdash; a 10&times; expansion, and 2.8% of price against 0.97%. Any strategy with a fixed dollar or pip stop that was tuned before 2024 is now sized for a market that no longer exists.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <span class="lab">The single most important engineering consequence</span>
+    <p>Every threshold in a gold bot &mdash; stops, targets, breakout filters, trailing distances, position size &mdash; must be expressed as a multiple of ATR, never in dollars or pips. A $30 stop was 2.4 average daily ranges in 2018 and is 0.23 of one in 2026. The same code, untouched, silently mutated from a swing system into a scalper. This is the most common cause of a gold EA that "stopped working."</p>
+  </div>
+</section>
+
+<hr class="div">
+
+<section>
+  <span class="sec-num">Section 05 &middot; The construction</span>
+  <h2 class="sec">A bot that trades the clock, not the chart</h2>
+  <p class="lede">The strategy that survives makes no directional forecast at all. It decides <em>how much</em> gold to hold as a function of the hour and of realised volatility &mdash; the two things that are actually forecastable.</p>
+
+  <div class="tw">
+  <table>
+    <caption>Exhibit 10 &middot; Session-weighted exposure vs. buy-and-hold, identical bars</caption>
+    <thead><tr><th>Construction</th><th class="num">Return p.a.</th><th class="num">Volatility</th><th class="num">Sharpe</th><th class="num">Max drawdown</th></tr></thead>
+    <tbody>
+      <tr><td class="name">Buy &amp; hold, flat 1&times;</td><td class="num">7.69%</td><td class="num">15.6%</td><td class="num">0.55</td><td class="num neg">&minus;28.3%</td></tr>
+      <tr><td class="name">Overlay 1.0 / 0.5 / 0.25</td><td class="num">7.80%</td><td class="num">8.6%</td><td class="num">0.92</td><td class="num">&minus;13.7%</td></tr>
+      <tr><td class="name"><strong>Overlay 1.5 / 0.5 / 0.0</strong></td><td class="num"><strong>11.43%</strong></td><td class="num">11.3%</td><td class="num pos"><strong>1.02</strong></td><td class="num">&minus;18.3%</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="measure">
+  <p>Weights are Asia / London / New&nbsp;York. The 1.5&nbsp;/&nbsp;0.5&nbsp;/&nbsp;0.0 construction earns a comparable return to holding gold outright, at 72% of the volatility, with a drawdown 10 percentage points shallower and <strong>zero exposure during the most violent nine hours of the day</strong>. Sharpe close to doubles.</p>
+  <p>Layering a volatility target on top &mdash; scaling notional to hold realised volatility near a constant, capped at 1.5&times; &mdash; adds a little more: on buy-and-hold alone it lifts Sharpe from 0.78 to 0.80 and trims the worst day from &minus;9.1% to &minus;6.1%. It is a modest gain in return terms and a large one in survivability, which is the right trade for a leveraged instrument.</p>
+  </div>
+
+  <h3>Cost is the entire question</h3>
+  <div class="measure">
+  <p>The gross Asian drift is 2.59&nbsp;bp per session, or about $0.57 per ounce at current prices. A typical retail XAUUSD spread is 2&ndash;4&nbsp;bp of price. That is not a detail at the margin &mdash; it is the difference between the strategy and its opposite.</p>
+  </div>
+
+  <div class="tw">
+  <table>
+    <caption>Exhibit 11 &middot; The same edge across five execution venues</caption>
+    <thead><tr><th>Venue</th><th class="num">Round trip</th><th class="num">Net per session</th><th class="num">Annualised</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td class="name">CME GC futures, 1 tick + commission</td><td class="num">$0.10</td><td class="num pos">+1.98 bp</td><td class="num pos">+5.00%</td><td><span class="pill live">Viable</span></td></tr>
+      <tr><td class="name">GC futures, wider fill</td><td class="num">$0.20</td><td class="num pos">+1.38 bp</td><td class="num pos">+3.47%</td><td><span class="pill live">Viable</span></td></tr>
+      <tr><td class="name">Tight ECN CFD</td><td class="num">$0.30</td><td class="num pos">+0.77 bp</td><td class="num pos">+1.95%</td><td><span class="pill warn">Marginal</span></td></tr>
+      <tr><td class="name">Typical retail CFD</td><td class="num">$0.50</td><td class="num neg">&minus;0.43 bp</td><td class="num neg">&minus;1.09%</td><td><span class="pill dead">Dead</span></td></tr>
+      <tr><td class="name">Wide retail CFD</td><td class="num">$1.00</td><td class="num neg">&minus;3.45 bp</td><td class="num neg">&minus;8.70%</td><td><span class="pill dead">Dead</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout good">
+    <span class="lab">The practical conclusion</span>
+    <p>Build this on <strong>CME gold futures</strong> &mdash; GC, or MGC at 10 oz for smaller accounts &mdash; not on a retail CFD. One tick is $0.10/oz and commission adds $0.02&ndash;0.04. That is a third of the cost that kills the strategy. If a CFD is the only option, the venue must be an ECN with a documented sub-$0.30 average XAUUSD spread, verified on your own fills during the 18:00&ndash;02:00 window rather than from the broker's marketing page &mdash; spreads widen precisely at the rollover this strategy trades into.</p>
+    <p>The lower-turnover overlay in Exhibit 10 is the better answer to this problem: it adjusts weight rather than round-tripping the whole position every night, so the same edge carries far less cost.</p>
+  </div>
+</section>
+<hr class="div">
+
+<section>
+  <span class="sec-num">Section 06 &middot; Implementation</span>
+  <h2 class="sec">Building it</h2>
+  <p class="lede">The reference implementation ships with this report: <code>bot/session_overlay.py</code> for the logic and <code>bot/XAUUSDSessionOverlay.mq5</code> for MetaTrader&nbsp;5.</p>
+
+  <h3>The specification</h3>
+  <ol class="steps measure">
+    <li><strong>Clock, in New York time with DST.</strong> Asia 18:05&ndash;02:00 at weight 1.5, London 02:00&ndash;08:00 at 0.5, New&nbsp;York 08:00&ndash;17:00 at 0.0, flat through the 17:00&ndash;18:05 rollover. Entry at 18:05, never 18:00 &mdash; that five minutes is the artifact from Section&nbsp;02, and it is also when the spread is at its widest.</li>
+    <li><strong>Volatility-targeted size.</strong> Notional = equity &times; session weight &times; min(target&nbsp;vol / realised&nbsp;20d&nbsp;vol, 1.5). This is what keeps the bot alive across the regime shift in Exhibit&nbsp;9.</li>
+    <li><strong>Spread gate.</strong> If the spread exceeds $0.35/oz, do not increase exposure. Reducing risk is always permitted. This single rule is what separates the viable rows of Exhibit&nbsp;11 from the dead ones.</li>
+    <li><strong>Trend filter.</strong> Flat below the 200-day moving average. It costs return in the sample and cuts the tail &mdash; take it if you cannot sit through a 1980-style decade, skip it if you can.</li>
+    <li><strong>Flat before the weekend.</strong> Friday 15:00 New&nbsp;York. Weekend gap risk is uncompensated: the median Monday gap is $0.33 and 97% fill, so there is nothing to earn and a fat tail to carry.</li>
+    <li><strong>Hard per-session stop</strong> at 2% of equity, checked before any sizing logic runs.</li>
+  </ol>
+
+  <div class="callout">
+    <span class="lab">Three implementation details that will silently break this</span>
+    <p><strong>Broker server time is not New&nbsp;York time.</strong> Most MT5 brokers run at GMT+2/+3 and shift with European DST, not American. The EA converts through GMT and applies the US rule explicitly; its DST routine was verified against 105,192 hourly stamps from 2015&ndash;2026 with zero mismatches. Hard-coding a fixed offset puts every session boundary an hour out for part of the year.</p>
+    <p><strong>Swap and financing.</strong> A held gold position pays or receives a nightly swap, and the Asian window straddles the rollover where it is charged. On many retail CFDs the short swap is punitive and the long swap is merely bad. Model it &mdash; a &minus;$3/lot/night swap on a strategy earning $0.57/oz is not a rounding error. Futures avoid this entirely; the cost is in the basis instead.</p>
+    <p><strong>Backtest on your own broker's ticks.</strong> The results here come from one aggregated feed. Your fills, spread profile and rollover behaviour differ, and this strategy lives inside a margin narrow enough that the difference matters.</p>
+  </div>
+
+  <h3>What to build next, in order</h3>
+  <ol class="steps measure">
+    <li><strong>Verify the edge exists on your venue.</strong> Log the 18:05&ndash;02:00 return and your actual round-trip cost for 60 sessions before risking anything. If your cost exceeds $0.35/oz, stop &mdash; no amount of logic downstream recovers a negative gross edge.</li>
+    <li><strong>Paper-trade the overlay for a quarter.</strong> The expected number of sessions to distinguish this edge from zero is in the hundreds, so resist re-tuning on a bad month.</li>
+    <li><strong>Add the volatility forecast, not a price forecast.</strong> The 0.563 R² in Exhibit 4's companion statistics is where further modelling actually pays &mdash; better range forecasts improve sizing, and sizing is where this strategy's Sharpe comes from.</li>
+    <li><strong>Consider selling the New&nbsp;York volatility instead of avoiding it.</strong> The NY session has the highest range and no drift, which is the textbook profile for a premium-selling overlay rather than a directional one. That is outside this study's scope and needs an options venue, but it is where the structure points.</li>
+  </ol>
+</section>
+
+<hr class="div">
+
+<section>
+  <span class="sec-num">Section 07 &middot; Risk</span>
+  <h2 class="sec">What would make this wrong</h2>
+  <p class="lede">A finding you cannot falsify is not a finding. These are the specific conditions under which this study's conclusion stops being true.</p>
+
+  <ul class="clean measure">
+    <li><strong>The Asian drift is statistically real but not large.</strong> <span class="mono">t&nbsp;=&nbsp;3.00</span> over 2,914 sessions, positive in 10 of 12 years &mdash; and negative in 2018 and 2022. A two-year losing stretch is inside normal behaviour for this edge, which means you cannot distinguish a bad run from a dead edge quickly. Decide the abandonment rule in advance.</li>
+    <li><strong>The sample is one regime.</strong> 2015&ndash;2026 is a secular gold bull market: $1,184 to $4,572, with 2025 alone up 51.7%. The long-side results, the 200-day filter and the Asia drift may all be partly an expression of that trend. This study cannot separate them, and a genuine bear decade would be the real test.</li>
+    <li><strong>Volatility regime shift.</strong> ADR went from $12 to $128 within the sample. ATR-normalisation is the defence, but a fresh doubling would still change fill quality and spread behaviour in ways backtests do not capture.</li>
+    <li><strong>Crowding.</strong> The overnight drift is well documented and increasingly traded. If enough capital moves to the Asian window, the compensation for carrying overnight inventory shrinks and the edge goes with it.</li>
+    <li><strong>Costs are the binding constraint, and they can change.</strong> The strategy sits 1&ndash;2&nbsp;bp above break-even on a good venue. A widening of the average spread by 0.2&nbsp;bp ends it. Monitor realised cost as a live risk metric, not a setup parameter.</li>
+    <li><strong>This is a single-instrument study on a single data feed.</strong> Nothing here has been validated on a second vendor's ticks.</li>
+  </ul>
+
+  <div class="callout">
+    <span class="lab">On the word &ldquo;manipulate&rdquo;</span>
+    <p>Nothing in this report involves influencing the price of gold, and nothing here would work if it tried. The structure described is a <em>liquidity and inventory</em> pattern &mdash; dealers being paid to carry risk through illiquid hours &mdash; that you are joining, not creating. Attempting to move a market with $200bn+ in daily turnover is not a strategy; it is a criminal offence with a rounding error's worth of price impact. The edge here comes from being on the right side of the clock, in size you can afford, at a cost low enough to keep it.</p>
+  </div>
+</section>
+
+<footer>
+  <h3>Sources and further reading</h3>
+  <ol>
+    <li>Quantum Algo / LuxAlgo &mdash; surveys of Smart Money Concepts backtesting, noting no rigorous public study establishes standalone profitability. <a href="https://www.quantum-algo.com/blog/smc-vs-ict-concepts/">quantum-algo.com</a>, <a href="https://www.luxalgo.com/library/concept/smart-money-concepts/">luxalgo.com</a></li>
+    <li>Kohli, R. &mdash; <em>Day-of-the-week effect and January effect examined in gold and silver metals</em>, Insurance Markets and Companies. <a href="https://businessperspectives.org/images/pdf/applications/publishing/templates/article/assets/4996/IMC_2012_02_Kohli.pdf">businessperspectives.org</a></li>
+    <li>Yu, H-C. et&nbsp;al. &mdash; <em>Weekday effects on gold: Tokyo, London, and New York markets</em>. <a href="https://www.businessperspectives.org/images/pdf/applications/publishing/templates/article/assets/7348/BBS_en_2016_02_Yu.pdf">businessperspectives.org</a></li>
+    <li>Haghani, V., Ragulin, V. &amp; Dewey, R. &mdash; <em>Night Moves: Is the Overnight Drift the Grandmother of All Market Anomalies?</em>, SSRN. <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4139328">papers.ssrn.com</a></li>
+    <li>Boyarchenko, N., Larsen, L. &amp; Whelan, P. &mdash; <em>The Overnight Drift</em>, Federal Reserve Bank of New York Staff Report&nbsp;917. Attributes the effect to dealer inventory management. <a href="https://www.newyorkfed.org/medialibrary/media/research/staff_reports/sr917.pdf">newyorkfed.org</a></li>
+    <li>QuantPedia &mdash; <em>Dangers of Relying on OHLC Prices: the Case of Overnight Drift in GDX ETF</em>. Independent confirmation that a large apparent gold-complex overnight anomaly is substantially a data artifact under minute-level execution. <a href="https://quantpedia.com/dangers-of-relying-on-ohlc-prices-the-case-of-overnight-drift-in-gdx-etf/">quantpedia.com</a></li>
+    <li>State Street Global Advisors &mdash; <em>Gold 2026 Outlook</em>; Goldman Sachs and J.P.&nbsp;Morgan research on central-bank demand and real yields as the dominant structural drivers. <a href="https://www.ssga.com/us/en/intermediary/insights/gold-2026-outlook-can-the-structural-bull-cycle-continue-to-5000">ssga.com</a>, <a href="https://www.goldmansachs.com/insights/articles/gold-is-forecast-to-climb-as-central-banks-buy-the-precious-metal">goldmansachs.com</a></li>
+    <li>Myfxbook community discussion and vendor documentation on martingale/grid expert advisors marketed with &ldquo;100% winning rate&rdquo; claims. <a href="https://www.myfxbook.com/community/general/martingaleaveraging-expert-advisors/1250119,2">myfxbook.com</a></li>
+    <li>Price data: HistData.com free one-minute XAUUSD bid bars, 2015-01 &rarr; 2026-08.</li>
+  </ol>
+  <p style="margin-top:22px">Research and analysis code accompany this report. Every figure is reproducible from <code>research/data_pipeline.py</code> &rarr; <code>research/analysis.py</code>.</p>
+  <p><strong>This is research, not investment advice.</strong> Leveraged gold trading can lose more than the capital committed. Past structure is not a forecast, and the edge documented here is small enough that ordinary execution differences can erase it.</p>
+</footer>
+
+</div>

@@ -1,0 +1,4 @@
+# research working data — regenerate with research/data_pipeline.py
+research/raw/
+research/ext/
+*.parquet
