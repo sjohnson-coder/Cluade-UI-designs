@@ -1,0 +1,39 @@
+ID   AREA        STATUS   REQUIREMENT
+--------------------------------------------------------------------------------------------------------
+R1   Telegram    DONE     Policy blocks separated from execution failures
+R2   Telegram    DONE     'order not filled' routed to throttled rejection class
+R3   Telegram    DONE     Block latch: alert on state transition not per attempt
+R4   Telegram    DONE     Pre-dispatch news gate on the direct path
+R5   Telegram    DONE     Dedupe window configured
+R6   Telegram    DONE     Management/burst blocker throttles
+C1   Cost        DONE     Cost-relative minimum stop (stop >= K x round-trip cost)
+C2   Cost        DONE     Fixed point stop floor superseded by the cost gate
+C3   Cost        DONE     Spread cap as fraction of ATR
+C4   Cost        DONE     Absolute spread cap
+C5   Cost        DONE     Slippage modelled in cost
+C6   Cost        DONE     Round-trip cost viability ceiling (research overlay)
+B1   Burst       DONE     Descending lot ladder (largest leg at best price)
+B2   Burst       DONE     Burst lot caps actually enforced
+B3   Burst       DONE     Per-leg cost gate
+B4   Burst       DONE     ATR-relative burst stop room
+B5   Burst       DONE     One batch per campaign
+B6   Burst       DONE     Armed-retest timing guard
+B7   Burst       DONE     Arming gated on realised session range
+B8   Burst       DONE     No add to a losing position
+S1   Session     DONE     Research clock policy present
+S2   Session     DONE     Overlay defaults to SHADOW
+S3   Session     DONE     Risk multiplier opt-in only
+S4   Session     DONE     Reopen artifact avoided (18:05 not 18:00)
+S5   Session     DONE     Friday flat boundary
+S6   Session     MANUAL   Session weight is sizing-only, never an entry switch
+                         -> verify at promotion; SHADOW today
+S7   Session     DONE     Separate intraday weight (distinct from exposure weight)
+V1   Validation  DONE     Walk-forward harness
+V2   Validation  DONE     Exact broker replay
+V3   Validation  DONE     Decision/trade telemetry store
+V4   Validation  DONE     Probability calibration
+V5   Validation  DONE     Daily loss circuit breaker
+V6   Validation  DONE     Post-loss cooldown
+V7   Validation  DONE     No martingale / loss-recovery ladder
+--------------------------------------------------------------------------------------------------------
+33/34 implemented · 0 gaps

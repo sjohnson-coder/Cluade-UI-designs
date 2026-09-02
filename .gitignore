@@ -4,3 +4,6 @@ research/ext/
 *.parquet
 __pycache__/
 *.pyc
+
+# release artifact (2.9MB, regenerate with the patch scripts)
+*.zip
