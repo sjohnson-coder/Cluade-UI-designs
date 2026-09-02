@@ -1,0 +1,71 @@
+GodMode capability grade   (root: /tmp/claude-0/-home-user-Cluade-UI-designs/6e9eecea-21cf-55a1-8cf1-83193e806d9e/scratchpad/build)
+====================================================================================
+
+Execution integrity   9/9     100%   A
+    [PASS] w2  Idempotent order keys + execution ledger
+    [PASS] w2  Serialized broker mutations
+    [PASS] w2  Fill reconciliation / position source of truth
+    [PASS] w1  Exact broker replay harness
+    [PASS] w2  Broker-time/DST correctness
+
+Risk control   13/13     100%   A
+    [PASS] w2  Daily loss circuit breaker
+    [PASS] w1  Post-loss cooldown
+    [PASS] w3  Cost-relative minimum stop
+    [PASS] w2  Burst lot caps actually enforced
+    [PASS] w1  Burst ladder does not escalate into weakness
+    [PASS] w3  No martingale / loss-recovery sizing
+    [PASS] w1  Burst arming gated on realised range
+
+Intelligence & forecasting   13/13     100%   A
+    [PASS] w3  Explicit volatility forecast model
+    [PASS] w3  Fitted probability calibrator
+    [PASS] w3  Out-of-distribution abstention
+    [PASS] w1  Regime classification
+    [PASS] w1  Probability engine
+    [PASS] w1  Model drift monitoring
+    [PASS] w1  Champion/challenger shadow evaluation
+
+Trade management   7/7     100%   A
+    [PASS] w2  Deterministic exit intelligence
+    [PASS] w1  Winner-breathing / trailing policy
+    [PASS] w1  Pyramiding with aggregate risk cap
+    [PASS] w2  ATR-relative thresholds, not fixed pips
+    [PASS] w1  Burst admission timing guard
+
+Observability & notification   8/8     100%   A
+    [PASS] w2  Policy blocks separated from execution failures
+    [PASS] w2  Block latch throttles repeat alerts
+    [PASS] w2  Every attempt recorded regardless of alerting
+    [PASS] w1  Decision/trade telemetry store
+    [PASS] w1  New capability surfaced in the UI
+
+Performance   5/5     100%   A
+    [PASS] w3  Static assets cacheable
+    [PASS] w1  Route-level code splitting
+    [PASS] w1  Non-blocking runtime lanes
+
+Proof of edge   3/16      19%   F
+    [PASS] w1  Walk-forward harness exists
+    [PASS] w1  Research overlay held in SHADOW
+    [PASS] w1  Ships disarmed
+    [MISS] w4  200-300 clean live trades per engine
+           -> NOT MET — no live broker record in this build
+    [MISS] w5  Positive out-of-sample expectancy after costs
+           -> NOT MET — every tested variant was negative after costs
+    [MISS] w4  4-8 week broker canary matching backtest
+           -> NOT MET — requires a live demo terminal
+
+====================================================================================
+CATEGORY                               SCORE    WEIGHTED   GRADE
+------------------------------------------------------------------------------------
+Execution integrity                    9/9          100%       A
+Risk control                          13/13         100%       A
+Intelligence & forecasting            13/13         100%       A
+Trade management                       7/7          100%       A
+Observability & notification           8/8          100%       A
+Performance                            5/5          100%       A
+Proof of edge                          3/16          19%       F
+------------------------------------------------------------------------------------
+OVERALL                               58/71          82%      A-
+====================================================================================
