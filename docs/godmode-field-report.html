@@ -1,0 +1,460 @@
+<title>GodMode Field Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --paper:#F4F3EE; --surface:#FCFBF7; --sunk:#EDEBE3;
+  --ink:#17181B; --ink-2:#4A4C52; --muted:#75777D;
+  --rule:#DCD9CE; --rule-2:#C6C2B4;
+  --accent:#8E6212; --accent-soft:#E8DCC0;
+  --pos:#1F6F4A; --neg:#A5322B;
+  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a;
+  --band1:#DCD3BC; --band2:#CFD6DE; --band3:#E2D2CB;
+  --flag:rgba(142,98,18,.10);
+  --shadow:0 1px 2px rgba(23,24,27,.05), 0 8px 24px -12px rgba(23,24,27,.14);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --paper:#121316; --surface:#191A1E; --sunk:#101114;
+    --ink:#E9E7E1; --ink-2:#B4B4B0; --muted:#8D8F95;
+    --rule:#2B2D32; --rule-2:#3C3F45;
+    --accent:#D9A648; --accent-soft:#3A3020;
+    --pos:#4FB183; --neg:#E2796E;
+    --c1:#3987e5; --c2:#d95926; --c3:#199e70;
+    --band1:#3A352A; --band2:#2A323B; --band3:#3B302B;
+    --flag:rgba(217,166,72,.12);
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --paper:#121316; --surface:#191A1E; --sunk:#101114;
+  --ink:#E9E7E1; --ink-2:#B4B4B0; --muted:#8D8F95;
+  --rule:#2B2D32; --rule-2:#3C3F45;
+  --accent:#D9A648; --accent-soft:#3A3020;
+  --pos:#4FB183; --neg:#E2796E;
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70;
+  --band1:#3A352A; --band2:#2A323B; --band3:#3B302B;
+  --flag:rgba(217,166,72,.12);
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:16px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px 96px}
+.measure{max-width:65ch}
+h1,h2,h3{font-family:Newsreader,Georgia,"Times New Roman",serif;font-weight:500;text-wrap:balance;margin:0}
+p{margin:0 0 1.05em}
+a{color:var(--accent);text-underline-offset:2px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+/* masthead */
+.mast{border-bottom:1px solid var(--rule-2);padding:44px 0 26px;margin-bottom:40px}
+.mast .rule-top{height:3px;background:var(--accent);width:64px;margin-bottom:22px}
+.mast h1{font-size:clamp(40px,6.4vw,68px);line-height:1.02;letter-spacing:-.021em;margin-bottom:14px}
+.mast .sub{font-family:Newsreader,serif;font-size:clamp(18px,2.2vw,22px);font-style:italic;color:var(--ink-2);max-width:44ch;line-height:1.42}
+.mast .meta{display:flex;flex-wrap:wrap;gap:26px;margin-top:26px;padding-top:18px;border-top:1px solid var(--rule)}
+.mast .meta div{display:flex;flex-direction:column;gap:2px}
+.mast .meta .k{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.mast .meta .v{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:500}
+
+/* verdict */
+.verdict{background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--accent);
+  padding:26px 30px;margin:0 0 52px;box-shadow:var(--shadow)}
+.verdict h2{font-size:23px;margin-bottom:12px;letter-spacing:-.01em}
+.verdict p:last-child{margin-bottom:0}
+
+section{margin:0 0 60px;scroll-margin-top:20px}
+h2.sec{font-size:clamp(26px,3.4vw,34px);letter-spacing:-.016em;margin:0 0 6px;padding-top:8px}
+.sec-num{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;color:var(--accent);
+  text-transform:uppercase;display:block;margin-bottom:10px}
+.lede{font-family:Newsreader,serif;font-size:20px;line-height:1.5;color:var(--ink-2);margin:0 0 24px;max-width:56ch}
+h3{font-size:19px;margin:34px 0 10px;letter-spacing:-.008em}
+
+/* exhibits */
+figure{margin:30px 0;background:var(--surface);border:1px solid var(--rule);padding:22px 24px 18px;box-shadow:var(--shadow)}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-top:14px;padding-top:12px;border-top:1px solid var(--rule)}
+figcaption b{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--accent);display:block;margin-bottom:4px;font-weight:600}
+
+/* svg type */
+.axtitle{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;fill:var(--muted)}
+.tick{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:var(--muted)}
+.barval{font-family:"IBM Plex Mono",monospace;font-size:10.5px;fill:var(--ink-2)}
+.note{font-family:"IBM Plex Sans",sans-serif;font-size:11.5px;fill:var(--muted);font-style:italic}
+.grid{stroke:var(--rule);stroke-width:1}
+.zero{stroke:var(--rule-2);stroke-width:1.5}
+.bar rect{fill:var(--accent);opacity:.32;transition:opacity .12s}
+.bar:hover rect{opacity:.75}
+.bar.lead rect{opacity:.82}
+.bar.pos rect{fill:var(--pos);opacity:.7}
+.bar.neg rect{fill:var(--neg);opacity:.7}
+.bar.sHigh rect,.sw.sHigh{fill:var(--c1);opacity:.8}
+.bar.sLow rect,.sw.sLow{fill:var(--c2);opacity:.8}
+.band{opacity:.85}
+.band.s1{fill:var(--band1)} .band.s2{fill:var(--band2)} .band.s3{fill:var(--band3)}
+.bandlab{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.14em;fill:var(--ink-2)}
+.flag{fill:var(--flag);stroke:var(--accent);stroke-width:1;stroke-dasharray:3 3}
+.line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.line.c1{stroke:var(--c1)} .line.c2{stroke:var(--c2)} .line.c3{stroke:var(--c3)}
+.dot.c1{fill:var(--c1)} .dot.c2{fill:var(--c2)} .dot.c3{fill:var(--c3)}
+.dot{stroke:var(--surface);stroke-width:2}
+.bench{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 4}
+.endlab{font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:500;fill:var(--ink)}
+.c1-t{fill:var(--c1)} .c2-t{fill:var(--c2)} .c3-t{fill:var(--c3)} .bench-t{fill:var(--muted)}
+
+.costgap{fill:var(--accent);opacity:.13}
+.pt circle{transition:r .12s}
+.pt:hover circle{r:6}
+.rangebar.med{fill:var(--accent);opacity:.75}
+.rangebar.p90{fill:var(--accent);opacity:.20}
+.rowlab{font-family:"IBM Plex Sans",sans-serif;font-size:12.5px;fill:var(--ink)}
+.verdict-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin:26px 0}
+.vcard{background:var(--surface);border:1px solid var(--rule);padding:18px 20px}
+.vcard .lab{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--muted);display:block;margin-bottom:8px}
+.vcard.agree{border-top:3px solid var(--pos)}
+.vcard.differ{border-top:3px solid var(--accent)}
+.vcard.gap{border-top:3px solid var(--neg)}
+.vcard p{font-size:14px;margin:0}
+.vcard h4{font-family:Newsreader,serif;font-size:17px;font-weight:500;margin:0 0 8px}
+pre{background:var(--sunk);border:1px solid var(--rule);padding:14px 16px;overflow-x:auto;
+  font-family:"IBM Plex Mono",monospace;font-size:12.5px;line-height:1.55;margin:18px 0}
+pre .hi{color:var(--neg);font-weight:600}
+pre .ok{color:var(--pos);font-weight:600}
+/* tables */
+.tw{overflow-x:auto;margin:26px 0;border:1px solid var(--rule);background:var(--surface);box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
+caption{text-align:left;padding:16px 20px 12px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;border-bottom:1px solid var(--rule)}
+th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--muted);font-weight:500;padding:11px 16px;border-bottom:1px solid var(--rule-2);white-space:nowrap}
+td{padding:10px 16px;border-bottom:1px solid var(--rule);vertical-align:baseline}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--sunk)}
+td.num,th.num{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.name{font-weight:500}
+.pos{color:var(--pos)} .neg{color:var(--neg)}
+.pill{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;padding:2px 7px;border-radius:2px;font-weight:600;white-space:nowrap}
+.pill.dead{background:color-mix(in srgb,var(--neg) 14%,transparent);color:var(--neg)}
+.pill.live{background:color-mix(in srgb,var(--pos) 14%,transparent);color:var(--pos)}
+.pill.warn{background:var(--accent-soft);color:var(--accent)}
+
+/* callouts */
+.callout{border:1px solid var(--rule);border-left:3px solid var(--neg);background:var(--surface);
+  padding:20px 24px;margin:26px 0}
+.callout.good{border-left-color:var(--pos)}
+.callout .lab{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);display:block;margin-bottom:7px}
+.callout p:last-child{margin-bottom:0}
+
+/* stat row */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:1px;background:var(--rule);
+  border:1px solid var(--rule);margin:28px 0}
+.stat{background:var(--surface);padding:18px 20px}
+.stat .k{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:6px}
+.stat .v{font-family:"IBM Plex Mono",monospace;font-size:26px;font-weight:500;letter-spacing:-.02em;line-height:1.1}
+.stat .d{font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.4}
+
+ul.clean{margin:0 0 1.05em;padding-left:1.15em}
+ul.clean li{margin-bottom:.5em}
+ol.steps{margin:0 0 1.05em;padding-left:1.3em}
+ol.steps li{margin-bottom:.7em}
+code{font-family:"IBM Plex Mono",monospace;font-size:.9em;background:var(--sunk);padding:1px 5px;border-radius:2px}
+hr.div{border:none;border-top:1px solid var(--rule);margin:52px 0}
+footer{border-top:1px solid var(--rule-2);padding-top:26px;margin-top:64px;font-size:13px;color:var(--muted)}
+footer h3{font-size:15px;margin:0 0 12px;color:var(--ink)}
+footer ol{padding-left:1.3em;margin:0}
+footer li{margin-bottom:7px;line-height:1.5}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:640px){
+  .wrap{padding:0 18px 64px}
+  figure{padding:16px 14px 12px}
+  .mast .meta{gap:18px}
+}
+</style>
+<div class="wrap">
+
+<header class="mast">
+  <div class="rule-top"></div>
+  <div class="eyebrow">GodMode V15.10.4 R68.18 &middot; research cross-check &amp; code audit</div>
+  <h1>GodMode Field Report</h1>
+  <p class="sub">Two independent studies reached the same verdict. The bot already knows it. Here is what is still costing you money &mdash; starting with one missing word.</p>
+  <div class="meta">
+    <div><span class="k">Bot</span><span class="v">90,406 LOC Python</span></div>
+    <div><span class="k">Studies compared</span><span class="v">2</span></div>
+    <div><span class="k">Root causes found</span><span class="v">4</span></div>
+    <div><span class="k">Patches, tested</span><span class="v">8/8 pass</span></div>
+    <div><span class="k">Telegram alerts</span><span class="v">900 &rarr; 2</span></div>
+  </div>
+</header>
+
+<div class="verdict">
+  <h2>Headline</h2>
+  <p>Your ChatGPT blueprint and my 4-million-bar study were run independently and converge on every material point: SMC labels have no standalone edge, news direction is not tradable, win-rate targets are a trap, and cost decides everything. That convergence is worth more than either document alone &mdash; two different methods failing to find a directional edge is real evidence there isn't one.</p>
+  <p>The bot is better engineered than most commercial products I have read. R68.18 implements my session research faithfully and correctly leaves it in <code>SHADOW</code>. The burst system has a one-batch campaign lock, ATR-relative stop room and timing guards. This is not a toy.</p>
+  <p>Four things are still wrong. The Telegram storm is a <strong>one-word classification miss</strong> compounded by a design fault that reports policy decisions on the same red channel as broker failures. The <strong>minimum stop of $1.50</strong> hands 29% of every trade's risk to the spread. The <strong>burst ladder escalates into weakness</strong>. And the <strong>session overlay is about to be applied to the wrong thing</strong> &mdash; New York is your best intraday window, not your worst.</p>
+</div>
+
+<section>
+  <span class="sec-num">Part 01 &middot; Research cross-check</span>
+  <h2 class="sec">Where the two studies agree, and where they don't</h2>
+  <p class="lede">The ChatGPT document is an evidence review and architecture blueprint. Mine is a measurement. They are complementary, not competing &mdash; but they are not interchangeable, and one gap matters.</p>
+
+  <div class="verdict-grid">
+    <div class="vcard agree"><span class="lab">Independent agreement</span>
+      <h4>SMC has no standalone edge</h4>
+      <p>Their review: &ldquo;no peer-reviewed, reproducible evidence that the popular ICT/SMC labels themselves create a stable standalone edge.&rdquo; My test: 20 sweep-and-reclaim variants, all negative, PF 0.77&ndash;0.95. Same conclusion, different roads.</p></div>
+    <div class="vcard agree"><span class="lab">Independent agreement</span>
+      <h4>No win-rate objective</h4>
+      <p>Their &ldquo;do not build&rdquo; list opens with a near-100% win-rate objective. I demonstrated a 94.4% win-rate system that loses money &mdash; 1,045 wins, 62 losses, net &minus;9.7&nbsp;R.</p></div>
+    <div class="vcard agree"><span class="lab">Independent agreement</span>
+      <h4>Cost decides everything</h4>
+      <p>They require costed walk-forward before any claim. I found cost is the sole difference between a viable and a dead version of the same strategy &mdash; and the sole cause of the negative SMC results.</p></div>
+    <div class="vcard agree"><span class="lab">Independent agreement</span>
+      <h4>Bursts are budget, not recovery</h4>
+      <p>Identical wording, arrived at separately: a burst is a risk-budget allocation, never a loss-recovery ladder, and never an add to a losing position.</p></div>
+  </div>
+
+  <h3>Where they differ &mdash; and which one to trust on each</h3>
+  <div class="tw">
+  <table>
+    <caption>Exhibit 1 &middot; Divergences that change what you build</caption>
+    <thead><tr><th>Question</th><th>ChatGPT blueprint</th><th>This study</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td class="name">Session bias</td><td>&ldquo;Do not hard-code a universal directional bias to a killzone&rdquo;</td><td>Measured a real exposure asymmetry: Asia +2.59 bp (t = 3.00), NY Sharpe &minus;0.03 over 11.7 years</td><td>Both. It is not a killzone <em>direction</em> bias &mdash; it is an exposure-weighting result, which is what they were warning against misusing</td></tr>
+      <tr><td class="name">New York session</td><td>Most informative for price discovery; weight it up</td><td>Most range (0.572 ATR) but worst holding Sharpe</td><td>Both are true. Price discovery is not drift &mdash; see Part 03</td></tr>
+      <tr><td class="name">Data artifacts</td><td>Not addressed</td><td>The strongest anomaly in the raw data (t = 7.75) is a stale reopen print; 42.8% of it is one minute</td><td>This study. Their pipeline would have shipped it</td></tr>
+      <tr><td class="name">Numbers</td><td>None &mdash; hypotheses awaiting broker-specific testing</td><td>Expectancy, t-stats, PF, IS/OOS on 4.08M bars</td><td>This study for magnitudes; theirs for the validation protocol, which is stricter than mine</td></tr>
+      <tr><td class="name">Architecture</td><td>Detailed: decision cards, purged CV, calibration, OOD abstention</td><td>Barely covered</td><td>Theirs. It is the better engineering document</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <span class="lab">The one gap in both documents</span>
+    <p>Neither study tested <strong>intraday entry quality</strong> by session. Mine measured holding drift; theirs measured price discovery. Your bot does neither &mdash; it enters and exits inside a session. I ran that test for this report, and the answer inverts the overlay's session weights. Part 03.</p>
+  </div>
+</section>
+
+<hr class="div">
+
+<section>
+  <span class="sec-num">Part 02 &middot; The Telegram storm</span>
+  <h2 class="sec">One missing word</h2>
+  <p class="lede">Five identical red alerts in one minute. The dedupe system that should have collapsed them is working perfectly &mdash; on a class your message never reaches.</p>
+
+  <div class="measure">
+  <p><code>_telegram_minimal_category()</code> routes a message into the throttled <code>rejection</code> class only when its text contains one of four phrases:</p>
+  </div>
+
+<pre>"trade rejected"  |  "order rejected"  |  "rejection summary"  |  "order not sent"</pre>
+
+  <div class="measure">
+  <p>Your alert says <strong>&ldquo;Order NOT filled&rdquo;</strong>. It matches none of them. I ran your exact message through the shipped functions:</p>
+  </div>
+
+<pre>category      : <span class="hi">'other'</span>                                <span class="hi">&lt;- not 'rejection'</span>
+event_key     : other:19870694:bbf8a6479a6f6259&hellip;   <span class="hi">&lt;- hashes the FULL message text</span>
+rejection key : <span class="ok">rejection:19870694</span>                  <span class="ok">&lt;- one alert per 90s window</span></pre>
+
+  <div class="measure">
+  <p>The <code>rejection</code> key deliberately throws away side, lots and reason so that every retry in a window collapses into one message. The <code>other</code> key hashes the entire text &mdash; so any variation in the reason string mints a brand-new alert. One word of vocabulary drift disabled the throttle that was built for exactly this case.</p>
+  </div>
+
+  <h3>The deeper fault</h3>
+  <div class="measure">
+  <p>Fixing the word is not enough. <code>_execute_mt5_serialized()</code> calls <code>_news_entry_guard()</code> and returns its block. Back in the runner, <em>any</em> non-ok result is handled as an execution failure:</p>
+  </div>
+
+<pre>if result.get("ok"):
+    &hellip;
+else:
+    block_msg = str(result.get("message") or "Unknown reason")[:400]
+    _telegram_send_text(f"🔴 *GodMode — Order NOT filled*\n&hellip;")   <span class="hi">&lt;- policy block lands here too</span></pre>
+
+  <div class="measure">
+  <p>A <strong>policy block</strong> and an <strong>execution failure</strong> need opposite handling. A news window is expected, persistent and self-clearing &mdash; it should alert once when it starts. A broker rejection is unexpected and should alert every time. R48's intent was right (never leave a DISPATCHED with no outcome); its scope caught policy decisions too. The news window lasts minutes while the scanner retries every couple of seconds, so the alert fires forever.</p>
+  </div>
+
+  <div class="tw">
+  <table>
+    <caption>Exhibit 2 &middot; Patch verified &mdash; 8/8 tests pass</caption>
+    <thead><tr><th>Scenario</th><th class="num">Before</th><th class="num">After</th></tr></thead>
+    <tbody>
+      <tr><td class="name">Your screenshot: 5 blocked dispatches</td><td class="num neg">5 alerts</td><td class="num pos">1</td></tr>
+      <tr><td class="name">30-min news window, 2 s scan (900 attempts)</td><td class="num neg">up to 900</td><td class="num pos">2</td></tr>
+      <tr><td class="name">Spread-spike message with changing digits</td><td class="num neg">6 alerts</td><td class="num pos">1</td></tr>
+      <tr><td class="name">Genuine broker rejection</td><td class="num">1 alert</td><td class="num">1 &mdash; unchanged</td></tr>
+      <tr><td class="name">All-clear when the window lifts</td><td class="num neg">none</td><td class="num pos">1, with skipped count</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="measure">Nothing is hidden. Every attempt still lands in the dashboard, journal and notification store &mdash; only the phone gets quieter. Code and tests are in <code>godmode_patches/</code>.</p>
+</section>
+<hr class="div">
+
+<section>
+  <span class="sec-num">Part 03 &middot; The biggest lever</span>
+  <h2 class="sec">Your minimum stop is giving 29% of every trade to the spread</h2>
+  <p class="lede">This is the single highest-expectancy change available in the bot, and it is a settings value, not a strategy.</p>
+
+  <div class="measure">
+  <p>I ran the same entry model over the same 4.08M bars and changed nothing but the stop distance. Gross expectancy &mdash; what the market gives you before costs &mdash; is flat at every stop size. Net expectancy is not.</p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 920 340" role="img" aria-label="Gross expectancy is flat across stop sizes while net expectancy collapses as stops tighten; the gap is transaction cost.">
+<text class="axtitle" x="64" y="12">expectancy per trade, R</text><line class="grid" x1="64" y1="37.6" x2="724" y2="37.6"/><text class="tick" x="56" y="41.1" text-anchor="end">+0.00 R</text><line class="grid" x1="64" y1="89.6" x2="724" y2="89.6"/><text class="tick" x="56" y="93.1" text-anchor="end">-0.05 R</text><line class="grid" x1="64" y1="141.6" x2="724" y2="141.6"/><text class="tick" x="56" y="145.1" text-anchor="end">-0.10 R</text><line class="grid" x1="64" y1="193.6" x2="724" y2="193.6"/><text class="tick" x="56" y="197.1" text-anchor="end">-0.15 R</text><line class="grid" x1="64" y1="245.6" x2="724" y2="245.6"/><text class="tick" x="56" y="249.1" text-anchor="end">-0.20 R</text><line class="zero" x1="64" y1="37.6" x2="724" y2="37.6"/><path class="costgap" d="M64.0,40.6 L158.3,40.3 L252.6,60.2 L346.9,44.3 L441.1,43.5 L535.4,44.2 L629.7,40.0 L724.0,38.7 L724.0,56.8 L629.7,64.2 L535.4,80.4 L441.1,95.4 L346.9,117.0 L252.6,161.2 L158.3,191.7 L64.0,267.8 Z"/><path class="line c1" d="M64.0,40.6 L158.3,40.3 L252.6,60.2 L346.9,44.3 L441.1,43.5 L535.4,44.2 L629.7,40.0 L724.0,38.7"/><g class="pt"><title>0.08 ATR stop ($1.75) — GROSS expectancy: -0.0029 R · cost 21.8% of risk</title><circle class="dot c1" cx="64.0" cy="40.6" r="4"/></g><g class="pt"><title>0.12 ATR stop ($2.63) — GROSS expectancy: -0.0026 R · cost 14.6% of risk</title><circle class="dot c1" cx="158.3" cy="40.3" r="4"/></g><g class="pt"><title>0.18 ATR stop ($3.95) — GROSS expectancy: -0.0217 R · cost 9.7% of risk</title><circle class="dot c1" cx="252.6" cy="60.2" r="4"/></g><g class="pt"><title>0.25 ATR stop ($5.48) — GROSS expectancy: -0.0064 R · cost 7.0% of risk</title><circle class="dot c1" cx="346.9" cy="44.3" r="4"/></g><g class="pt"><title>0.35 ATR stop ($7.67) — GROSS expectancy: -0.0057 R · cost 5.0% of risk</title><circle class="dot c1" cx="441.1" cy="43.5" r="4"/></g><g class="pt"><title>0.50 ATR stop ($10.96) — GROSS expectancy: -0.0063 R · cost 3.5% of risk</title><circle class="dot c1" cx="535.4" cy="44.2" r="4"/></g><g class="pt"><title>0.75 ATR stop ($16.44) — GROSS expectancy: -0.0023 R · cost 2.3% of risk</title><circle class="dot c1" cx="629.7" cy="40.0" r="4"/></g><g class="pt"><title>1.00 ATR stop ($21.92) — GROSS expectancy: -0.0011 R · cost 1.7% of risk</title><circle class="dot c1" cx="724.0" cy="38.7" r="4"/></g><text class="endlab c1-t" x="734" y="42.7">GROSS expectancy</text><path class="line c2" d="M64.0,267.8 L158.3,191.7 L252.6,161.2 L346.9,117.0 L441.1,95.4 L535.4,80.4 L629.7,64.2 L724.0,56.8"/><g class="pt"><title>0.08 ATR stop ($1.75) — NET, after $0.35 cost: -0.2213 R · cost 21.8% of risk</title><circle class="dot c2" cx="64.0" cy="267.8" r="4"/></g><g class="pt"><title>0.12 ATR stop ($2.63) — NET, after $0.35 cost: -0.1482 R · cost 14.6% of risk</title><circle class="dot c2" cx="158.3" cy="191.7" r="4"/></g><g class="pt"><title>0.18 ATR stop ($3.95) — NET, after $0.35 cost: -0.1188 R · cost 9.7% of risk</title><circle class="dot c2" cx="252.6" cy="161.2" r="4"/></g><g class="pt"><title>0.25 ATR stop ($5.48) — NET, after $0.35 cost: -0.0763 R · cost 7.0% of risk</title><circle class="dot c2" cx="346.9" cy="117.0" r="4"/></g><g class="pt"><title>0.35 ATR stop ($7.67) — NET, after $0.35 cost: -0.0556 R · cost 5.0% of risk</title><circle class="dot c2" cx="441.1" cy="95.4" r="4"/></g><g class="pt"><title>0.50 ATR stop ($10.96) — NET, after $0.35 cost: -0.0412 R · cost 3.5% of risk</title><circle class="dot c2" cx="535.4" cy="80.4" r="4"/></g><g class="pt"><title>0.75 ATR stop ($16.44) — NET, after $0.35 cost: -0.0256 R · cost 2.3% of risk</title><circle class="dot c2" cx="629.7" cy="64.2" r="4"/></g><g class="pt"><title>1.00 ATR stop ($21.92) — NET, after $0.35 cost: -0.0185 R · cost 1.7% of risk</title><circle class="dot c2" cx="724.0" cy="56.8" r="4"/></g><text class="endlab c2-t" x="734" y="60.8">NET, after $0.35 cost</text><text class="tick" x="64.0" y="299" text-anchor="middle">0.08</text><text class="tick" x="64.0" y="314" text-anchor="middle">$2</text><text class="tick" x="158.3" y="299" text-anchor="middle">0.12</text><text class="tick" x="158.3" y="314" text-anchor="middle">$3</text><text class="tick" x="252.6" y="299" text-anchor="middle">0.18</text><text class="tick" x="252.6" y="314" text-anchor="middle">$4</text><text class="tick" x="346.9" y="299" text-anchor="middle">0.25</text><text class="tick" x="346.9" y="314" text-anchor="middle">$5</text><text class="tick" x="441.1" y="299" text-anchor="middle">0.35</text><text class="tick" x="441.1" y="314" text-anchor="middle">$8</text><text class="tick" x="535.4" y="299" text-anchor="middle">0.50</text><text class="tick" x="535.4" y="314" text-anchor="middle">$11</text><text class="tick" x="629.7" y="299" text-anchor="middle">0.75</text><text class="tick" x="629.7" y="314" text-anchor="middle">$16</text><text class="tick" x="724.0" y="299" text-anchor="middle">1.00</text><text class="tick" x="724.0" y="314" text-anchor="middle">$22</text><text class="axtitle" x="64" y="332">stop distance in ATR  /  median stop in $</text><text class="note" x="172.3" y="116.0">everything between the lines is spread</text></svg>
+    <figcaption><b>Exhibit 3 &middot; The cost cliff</b>
+    Gross expectancy sits within a whisker of zero from a $1.75 stop to a $22 stop &mdash; the market offers the same nothing either way. Net expectancy runs from &minus;0.019&nbsp;R to &minus;0.221&nbsp;R. The shaded area between the lines is transaction cost, and it is the entire difference.</figcaption>
+  </figure>
+
+  <div class="measure">
+  <p>The mechanism is arithmetic, not market behaviour. Cost is a fixed number of dollars per round turn. Expressed in R it is inversely proportional to stop distance. <strong>A tighter stop does not improve your R:R &mdash; it multiplies the toll the spread takes out of every trade.</strong> This is also the mechanism behind every negative SMC result in my study: reclaim entries sit close to the swept extreme, so the median stop was $3.05, and $0.35 of spread was 11.5% of risk on every trade.</p>
+  <p>Your shipped configuration allows a stop far tighter than that.</p>
+  </div>
+
+  <div class="tw">
+  <table>
+    <caption>Exhibit 4 &middot; Your live settings against the cost gate</caption>
+    <thead><tr><th>Setting</th><th class="num">Stop</th><th class="num">Cost</th><th class="num">Cost as % of risk</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td class="name"><code>earlyIntentProbeMinStopPoints = 1.5</code></td><td class="num">$1.50</td><td class="num">$0.44</td><td class="num neg">29.3%</td><td><span class="pill dead">Block &rarr; min $8.80</span></td></tr>
+      <tr><td class="name">SMC reclaim stop (measured median)</td><td class="num">$3.05</td><td class="num">$0.39</td><td class="num neg">12.8%</td><td><span class="pill dead">Block &rarr; min $7.80</span></td></tr>
+      <tr><td class="name"><code>earlyIntentStopAtr 0.45</code> @ 2018 ATR $12</td><td class="num">$5.40</td><td class="num">$0.44</td><td class="num">8.1%</td><td><span class="pill warn">Marginal</span></td></tr>
+      <tr><td class="name">Burst <code>nearBeLegStopAtr 0.42</code> @ ATR $30</td><td class="num">$12.60</td><td class="num">$0.44</td><td class="num pos">3.5%</td><td><span class="pill live">Pass</span></td></tr>
+      <tr><td class="name"><code>earlyIntentStopAtr 0.45</code> @ 2026 ATR $128</td><td class="num">$57.60</td><td class="num">$0.44</td><td class="num pos">0.8%</td><td><span class="pill live">Pass</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout good">
+    <span class="lab">The rule to add</span>
+    <p>Replace the fixed point floor with a cost-relative one. A fixed <code>1.5</code> cannot track a spread that moves, and your ATR multiples already float correctly &mdash; it is only the absolute floor that is broken.</p>
+    <p><code>stop_distance &gt;= 20 &times; (spread + entry_slip + exit_slip)</code></p>
+    <p>At 20&times; the cost is capped at 5% of risk, which is the knee of the curve in Exhibit 3. Below 20 the degradation accelerates sharply; above about 30 you start refusing valid setups for marginal benefit. Prefer <em>widening</em> the stop and resizing the lot over rejecting the setup &mdash; that keeps the trade and fixes the economics, but you must resize, or the wider stop silently carries more cash risk than the plan allowed.</p>
+  </div>
+</section>
+
+<hr class="div">
+
+<section>
+  <span class="sec-num">Part 04 &middot; The overlay trap</span>
+  <h2 class="sec">Don't let the session research silence New York</h2>
+  <p class="lede">R68.18 implements my findings correctly. But it is about to apply them to a different question than the one they answer.</p>
+
+  <div class="measure">
+  <p><code>research_clock_policy</code> sets the New York weight to <code>0.0</code>. That is right for what it was derived from &mdash; <strong>holding</strong> exposure, where New York produced a &minus;0.03 Sharpe across 11.7 years. Your bot does not hold. It enters and exits inside a session. Those are different measurements and the weight does not transfer between them.</p>
+  <p>Neither my original study nor the ChatGPT blueprint tested this, so I ran it: a volatility breakout and its exact inverse, in each session, 0.35 ATR stop, 1.5&nbsp;R target, costs charged, ~2,992 trades per cell.</p>
+  </div>
+
+  <div class="tw">
+  <table>
+    <caption>Exhibit 5 &middot; Intraday trade quality by session &mdash; the opposite ranking</caption>
+    <thead><tr><th>Session</th><th>Mode</th><th class="num">Win</th><th class="num">Expectancy</th><th class="num">PF</th><th class="num">In-sample</th><th class="num">Out-of-sample</th></tr></thead>
+    <tbody>
+      <tr><td class="name">NY AM 08:00&ndash;12:00</td><td>fade</td><td class="num">47.3%</td><td class="num">&minus;0.026 R</td><td class="num">0.93</td><td class="num neg">&minus;0.062</td><td class="num pos">+0.027</td></tr>
+      <tr><td class="name">London 02:00&ndash;08:00</td><td>fade</td><td class="num">47.1%</td><td class="num">&minus;0.030 R</td><td class="num">0.87</td><td class="num neg">&minus;0.026</td><td class="num neg">&minus;0.036</td></tr>
+      <tr><td class="name">NY PM 12:00&ndash;17:00</td><td>fade</td><td class="num">48.3%</td><td class="num">&minus;0.034 R</td><td class="num">0.85</td><td class="num neg">&minus;0.052</td><td class="num neg">&minus;0.007</td></tr>
+      <tr><td class="name">Asia 18:05&ndash;02:00</td><td>breakout</td><td class="num">47.0%</td><td class="num">&minus;0.043 R</td><td class="num">0.81</td><td class="num neg">&minus;0.075</td><td class="num pos">+0.005</td></tr>
+      <tr><td class="name">NY AM 08:00&ndash;12:00</td><td>breakout</td><td class="num">44.1%</td><td class="num">&minus;0.061 R</td><td class="num">0.85</td><td class="num neg">&minus;0.055</td><td class="num neg">&minus;0.069</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="measure">
+  <p>Three things fall out. First, <strong>NY AM is the best intraday cell, not the worst</strong> &mdash; the exact inverse of what the exposure weight implies. Second, every cell is still negative and the in-sample and out-of-sample signs disagree, so none of this is a strategy; it is evidence about where to point one. Third, and most useful: <strong>Asia is the only session where breakout beats fade</strong>, while London and New York both prefer fade. That matches the drift result &mdash; Asia trends, New York chops &mdash; and it is exactly the right shape for an engine selector, which is what the ChatGPT blueprint's orchestrator was designed to be.</p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 920 236" role="img" aria-label="Median and 90th-percentile session range in ATR; New York morning is the widest.">
+<text class="axtitle" x="176" y="12">session range, multiples of daily ATR &#183; solid = median, pale = 90th percentile</text><line class="grid" x1="176.0" y1="16" x2="176.0" y2="200"/><text class="tick" x="176.0" y="216" text-anchor="middle">0.00</text><line class="grid" x1="324.6" y1="16" x2="324.6" y2="200"/><text class="tick" x="324.6" y="216" text-anchor="middle">0.25</text><line class="grid" x1="473.3" y1="16" x2="473.3" y2="200"/><text class="tick" x="473.3" y="216" text-anchor="middle">0.50</text><line class="grid" x1="621.9" y1="16" x2="621.9" y2="200"/><text class="tick" x="621.9" y="216" text-anchor="middle">0.75</text><line class="grid" x1="770.5" y1="16" x2="770.5" y2="200"/><text class="tick" x="770.5" y="216" text-anchor="middle">1.00</text><rect class="rangebar p90" x="176" y="22.0" width="623.1" height="26" rx="3"/><g class="bar"><title>NY AM 08:00-12:00: median 0.572 ATR, 90th percentile 1.048 ATR</title><rect class="rangebar med" x="176" y="22.0" width="340.1" height="26" rx="3"/></g><text class="rowlab" x="164" y="39.0" text-anchor="end">NY AM 08:00-12:00</text><text class="barval" x="807.1" y="39.0">0.57 / 1.05</text><rect class="rangebar p90" x="176" y="71.3" width="418.6" height="26" rx="3"/><g class="bar"><title>London 02:00-08:00: median 0.404 ATR, 90th percentile 0.704 ATR</title><rect class="rangebar med" x="176" y="71.3" width="240.2" height="26" rx="3"/></g><text class="rowlab" x="164" y="88.3" text-anchor="end">London 02:00-08:00</text><text class="barval" x="602.6" y="88.3">0.40 / 0.70</text><rect class="rangebar p90" x="176" y="120.7" width="406.1" height="26" rx="3"/><g class="bar"><title>Asia 18:05-02:00: median 0.377 ATR, 90th percentile 0.683 ATR</title><rect class="rangebar med" x="176" y="120.7" width="224.1" height="26" rx="3"/></g><text class="rowlab" x="164" y="137.7" text-anchor="end">Asia 18:05-02:00</text><text class="barval" x="590.1" y="137.7">0.38 / 0.68</text><rect class="rangebar p90" x="176" y="170.0" width="380.5" height="26" rx="3"/><g class="bar"><title>NY PM 12:00-17:00: median 0.310 ATR, 90th percentile 0.640 ATR</title><rect class="rangebar med" x="176" y="170.0" width="184.3" height="26" rx="3"/></g><text class="rowlab" x="164" y="187.0" text-anchor="end">NY PM 12:00-17:00</text><text class="barval" x="564.5" y="187.0">0.31 / 0.64</text></svg>
+    <figcaption><b>Exhibit 6 &middot; How much room each session actually gives you</b>
+    New York morning offers 52% more range than Asia and 85% more than the New York afternoon. If you have a positive-expectancy entry model, this is where its trades are largest &mdash; and it is where a burst has room to continue.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <span class="lab">Recommendation</span>
+    <p>Keep <code>researchClockPolicyMode=SHADOW</code>. When you promote it, apply the session weight to <strong>risk sizing only, never as an entry on/off switch</strong>, and derive a separate intraday weight from your own broker's fills rather than reusing the exposure weight. The two numbers answer different questions and only one of them is about the trades your bot actually makes.</p>
+  </div>
+</section>
+
+<hr class="div">
+
+<section>
+  <span class="sec-num">Part 05 &middot; Burst</span>
+  <h2 class="sec">The ladder escalates into weakness</h2>
+  <p class="lede">The burst machinery is genuinely well built. Three gaps remain, and one of them is the shape of the ladder itself.</p>
+
+  <div class="measure">
+  <p>What is already right: a one-batch-per-campaign lock, ATR-relative stop room (0.55), the armed-retest timing guard from R68.12, per-leg dispatch timestamps that stop a refreshed clock from authorising a chase, and 900-second blocker reminders. That is a more careful execution path than most commercial EAs have.</p>
+  </div>
+
+  <h3>Invert the ladder</h3>
+  <div class="measure">
+  <p>The packaged default is <code>0.04 &rarr; 0.06 &rarr; 0.08</code>. That adds <em>more</em> size at <em>worse</em> prices. Both this study and your own blueprint state the rule independently: a burst is a risk-budget allocation, never a recovery ladder. Running it <code>0.08 &rarr; 0.06 &rarr; 0.04</code> puts the largest leg at the best price and makes each add reduce marginal risk. Total basket risk is unchanged; the average entry improves.</p>
+  </div>
+
+  <h3>Apply the cost gate per leg</h3>
+  <div class="measure">
+  <p>Legs currently inherit the base stop distance. Each leg enters later and worse, so an identical stop means later legs carry a higher cost-to-risk ratio than the first. Run Exhibit 4's gate on every leg, not once per batch.</p>
+  </div>
+
+  <h3>Gate arming on room, not just time</h3>
+  <div class="measure">
+  <p>A burst needs continuation to exist. Exhibit 6 is the map: arm where there is room. Gate on the <code>research_clock_policy</code> session <em>plus</em> a live realised-range check against the session's median, so a dead NY afternoon cannot arm a three-leg ladder that has nowhere to go.</p>
+  </div>
+</section>
+
+<hr class="div">
+
+<section>
+  <span class="sec-num">Part 06</span>
+  <h2 class="sec">Do these in this order</h2>
+
+  <div class="tw">
+  <table>
+    <caption>Exhibit 7 &middot; Priority</caption>
+    <thead><tr><th class="num">#</th><th>Change</th><th>Effect</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td class="name">Telegram policy/failure split + latch</td><td>900 alerts &rarr; 2; broker failures still always alert</td><td><span class="pill live">None &mdash; tested, notification-only</span></td></tr>
+      <tr><td class="num">2</td><td class="name">Cost-relative minimum stop (20&times;)</td><td>Caps spread at 5% of risk. Largest expectancy gain available</td><td><span class="pill warn">Refuses or widens tight setups</span></td></tr>
+      <tr><td class="num">3</td><td class="name">Invert the burst ladder</td><td>Best price gets the largest leg; same basket risk</td><td><span class="pill warn">Re-verify campaign caps</span></td></tr>
+      <tr><td class="num">4</td><td class="name">Per-leg cost gate on bursts</td><td>Stops later legs carrying a worse cost ratio</td><td><span class="pill live">Low</span></td></tr>
+      <tr><td class="num">5</td><td class="name">Burst arming gated on realised range</td><td>No ladders into a dead session</td><td><span class="pill live">Low</span></td></tr>
+      <tr><td class="num">6</td><td class="name">Keep the overlay in SHADOW; sizing-only when promoted</td><td>Prevents disabling your best intraday window</td><td><span class="pill live">None &mdash; it is the default</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <span class="lab">What none of this does</span>
+    <p>None of these changes creates a directional edge, because neither study found one to create. They stop the bot from losing money to avoidable friction and from shouting at you while it does. That is the honest ceiling on what code changes can deliver here &mdash; the remaining upside is in execution venue (Exhibit 11 of the first report: viable under $0.35/oz round trip, dead above it) and in patiently accumulating your own broker's fills until you can measure a real edge rather than inherit one.</p>
+    <p>Your ChatGPT blueprint's acceptance gates &mdash; 200&ndash;300 clean trades per engine, no year contributing more than 35% of profit, survival under 50&ndash;100% slippage stress &mdash; are stricter than mine and you should use them as written.</p>
+  </div>
+</section>
+
+<footer>
+  <h3>Artifacts</h3>
+  <ol>
+    <li><code>godmode_patches/telegram_event_policy.py</code> — policy/failure classifier and block latch. 8/8 tests pass.</li>
+    <li><code>godmode_patches/test_telegram_event_policy.py</code> — replays the exact storm from the screenshot.</li>
+    <li><code>godmode_patches/cost_relative_stop.py</code> — the stop gate, runnable against your live settings.</li>
+    <li><code>godmode_patches/APPLY.md</code> — exact diffs with line numbers in <code>backend/app.py</code>.</li>
+    <li><code>research/FINDINGS.md</code> — the underlying 4.08M-bar study.</li>
+  </ol>
+  <p style="margin-top:22px"><strong>Research and engineering analysis, not investment advice.</strong> No change described here makes a strategy profitable. Every number comes from historical data on one feed and requires confirmation on your own broker's fills before it authorises anything live.</p>
+</footer>
+
+</div>
